@@ -14,7 +14,7 @@ A budgeting app where users manage multiple budget profiles. Each profile define
 
 Each user account can access multiple profiles. The original owner alone can share a profile or change access. An editor can change the whole profile, including all periods, categories, and subcategories; view-only users can view it.
 
-Each account records an email address, first name, and last name separately from its stable identity. Required fields, email uniqueness and verification, and sign-in rules remain to be decided.
+Each account keeps its email address and personal details separate from its stable identity. Registration is open and requires a unique email, password, and matching password confirmation. Passwords require at least 12 characters without character-class requirements. Email confirmation links expire after 24 hours, and email must be verified before financial/profile use. First and last names are managed on a separate account profile page; their requiredness there remains undecided. The first implementation slice covers registration and confirmation using a local development email sink; OpenIddict sign-in and Gmail integration follow separately.
 
 ## Core Features
 

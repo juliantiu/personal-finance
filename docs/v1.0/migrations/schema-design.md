@@ -6,7 +6,7 @@ Status: **Reviewed, engine-independent logical design normalized through 3NF und
 
 ## Scope and sources
 
-The model covers user/profile access, profile categories and subcategories, period selections and allocations, saved cards and Cash, statement review, approved transaction splits, tags, IOU repayments, savings/debt corrections, and report inputs. Accounts retain a stable identity, email address, first name and last name; field requiredness and authentication policy remain unspecified. Live bank connections are deferred. No executable SQL, engine types, indexes, migrations, generic audit history, or infrastructure tenancy are included.
+The model covers user/profile access, profile categories and subcategories, period selections and allocations, saved cards and Cash, statement review, approved transaction splits, tags, IOU repayments, savings/debt corrections, and report inputs. Accounts retain a stable identity, email address, first name and last name. UC-001 approval on 23 October 2026 confirms required unique normalized email and email verification; names move to a later account profile page with requiredness still open. See the account dictionary and current UC-001 implementation plan for the updated account rules. Live bank connections are deferred. No executable SQL, engine types, indexes, migrations, generic audit history, or infrastructure tenancy are included.
 
 | Source | Relevant sections | Authority and modeling use |
 | --- | --- | --- |
@@ -441,11 +441,11 @@ All monetary values use exact logical `decimal`. Allocations, goals, and correct
 | Attribute | Type | Required | Constraint |
 | --- | --- | --- | --- |
 | account_id | identifier | R | PK. |
-| email_address | text | O | Separate from identity; requiredness and uniqueness remain undecided. |
+| email_address | text | R | Separate from stable identity; required and unique using Identity normalized-email comparison (UC-001 approval, 23 October 2026). |
 | first_name | text | O | Requiredness remains undecided. |
 | last_name | text | O | Requiredness remains undecided. |
 
-D14 establishes these account fields. O is provisional optionality until requiredness is decided; it is not a confirmed requirement to allow missing values. Email verification, comparison/uniqueness, and use for sign-in remain unspecified, so email is not yet a candidate key. The stable identifier remains independent of email changes; GUID is suitable but its physical representation is outside this logical design.
+D14 establishes these account fields. UC-001 approval on 23 October 2026 confirms required unique normalized email and email verification using ASP.NET Core Identity; normalized email is an additional candidate key. First/last-name requiredness remains undecided for the later account profile page, so O remains provisional for names only. The stable identifier remains independent of email changes. Identity credentials, confirmation state and provider tables are physical implementation concerns described in the technical specification and UC-001 plan; this domain diagram does not inventory Identity tables. GUID is suitable but its physical representation is outside this logical design.
 
 ### BudgetProfile
 

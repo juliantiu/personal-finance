@@ -1,10 +1,14 @@
-﻿ID,Name,Actors,Preconditions,Main Flow,Alternative Flows,Postconditions
-UC-001,Create a user account,Prospective user; application,The prospective user needs an account to access budget profiles. Authentication and account-field requiredness are not yet defined.,"1. Start account creation.
-2. Provide an email address, first name, and last name as separate account facts, subject to requiredness rules still to be decided.
-3. Submit the account information.
-4. The application creates a stable account identity independently of those editable personal details.
-5. Review the creation result and proceed to profile access.","- 2a: Required fields, email uniqueness/comparison, verification, and sign-in rules remain undecided; do not infer them from the logical dictionary's provisional optionality.
-- 3–4a: Creation fails; show the issue without confirming an account was created.","On success, a stable account exists with the supplied email, first-name, and last-name facts kept separately from its identity. No authentication or recovery workflow is implied."
+ID,Name,Actors,Preconditions,Main Flow,Alternative Flows,Postconditions
+"UC-001","Create a user account","Prospective user; application; development email sink","Open registration is available. This slice provides registration and email confirmation; sign-in and the account profile page are separate slices.","1. Open registration.
+2. Enter a required email, password, and matching password confirmation; the password has at least 12 characters without character-class requirements.
+3. Submit the request; validate inputs and create a stable account using ASP.NET Core Identity with a unique normalized email and a hashed password.
+4. Keep the email unverified and deliver a confirmation link through the local development email sink.
+5. Open the link within 24 hours and confirm the email.
+6. Show the confirmation result without signing the user in.","- 2-3a: Invalid input produces validation feedback without account creation.
+- 3a: Repeated or concurrent requests cannot create duplicate normalized emails and receive the same generic acknowledgement as a successful request.
+- 4a: A known email-delivery failure retains the unverified account; the generic acknowledgement does not promise creation or delivery. A resend operation issues a link for an eligible unverified account and gives the same acknowledgement for unknown or already-verified emails.
+- 5a: Invalid, tampered, or expired links do not verify the account. Reusing a still-valid link is harmless success after token validation.
+- First and last names are deferred to the account profile page; Gmail integration and OpenIddict sign-in are separate slices. Database integration is deferred; account endpoints remain unavailable until a SQL Server connection is configured.","A successfully registered account has a stable ID, unique email, and hashed password. Successful confirmation verifies its email without starting a session. Verification is required for future financial/profile access; no budget profiles or grants are created."
 UC-002,Create and access budget profiles,Account holder; application,The user has an account and can access zero or more profiles.,"1. Open the profiles accessible to the account.
 2. Choose to create a profile and configure its main currency and optional additional currencies through UC-019.
 3. Create the profile with the current user as original owner.

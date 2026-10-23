@@ -1,26 +1,44 @@
 # UC-001 — Create a user account — Sequence
 
-[Written specification (UC-001)](../use-cases.md#uc-001) · [Source proposal](../../PROPOSAL.md) · [Supporting schema](../../migrations/schema-design.md)
+[Written specification](../use-cases.md#uc-001) · [Approved implementation plan](implementation-plan.md)
 
-Approved generation for **v1.0**, 20 October 2026. UI/service boundaries are conceptual; no HTTP or implementation contract is implied.
-
-**Scope and open policies:** Account identity is independent of email, first name and last name (D14). Requiredness, uniqueness, verification and authentication remain undecided; no credential workflow is invented.
+Updated 23 October 2026. Identity and email implementations remain behind Application ports; HTTP and Identity types stay outside inner layers.
 
 ```mermaid
 sequenceDiagram
     actor User as Prospective user
-    participant UI as Conceptual user interface
-    participant App as Conceptual application service
-    User->>UI: Start account creation
-    UI-->>User: Request email, first name, and last name
-    Note over UI,App: Fields are defined, requiredness and email uniqueness remain open
-    User->>UI: Supply information and submit
-    UI->>App: Request account creation
-    alt Creation succeeds
-        App-->>UI: Stable account identity created, supplied personal facts retained
-        UI-->>User: Confirm account available
-    else Creation fails
-        App-->>UI: Creation failure
-        UI-->>User: Show failure without confirming creation
+    participant UI as Blazor registration and confirmation UI
+    participant API as Account controller
+    participant App as Application commands and validation
+    participant Identity as Infrastructure Identity adapter
+    participant Email as Development email sink
+    User->>UI: Enter email, password, and confirmation
+    UI->>API: Submit registration
+    API->>App: Dispatch registration command
+    App->>App: Validate registration inputs
+    alt Inputs invalid
+        App-->>API: Validation errors without account creation
+        API-->>UI: Safe validation response
+    else Inputs valid
+        App->>Identity: Create account and confirmation token
+        Identity-->>App: Stable unverified account and protected token
+        App->>Email: Deliver confirmation link
+        Note over App,Email: Duplicates and known delivery failures use the same generic acknowledgement
+        App-->>API: Registration result
+        API-->>UI: Show registration result
     end
+    User->>UI: Open confirmation link
+    UI->>API: Submit account confirmation
+    API->>App: Dispatch confirmation command
+    App->>Identity: Validate token and confirm intended account
+    alt Valid link within 24 hours
+        Identity-->>App: Email confirmed
+        App-->>API: Confirmation result
+        API-->>UI: Show confirmation without sign-in
+    else Invalid, tampered, or expired link
+        Identity-->>App: Confirmation rejected
+        App-->>API: Safe failure result
+        API-->>UI: Show failure without verification
+    end
+    Note over UI,Identity: Resend supported; replay validates the token before harmless success
 ```
