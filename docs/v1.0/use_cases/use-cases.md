@@ -1,471 +1,201 @@
-# Budget and Transaction Tracker — Written Use Cases
+# Budget and Transaction Tracker — Use Cases
 
-Source: [Project proposal](../PROPOSAL.md). Proposal version: **v1.0**.
+Source: [v1.0 proposal](../PROPOSAL.md). Supporting design: [logical schema](../migrations/schema-design.md). Version: **v1.0**.
 
-Version selection: `docs/v1.0/` is the only version folder available; Git is unavailable for this project directory. Input and outputs use that existing version.
+Version selection: branch `main` has no release version; `docs/v1.0/` is the only version folder.
 
-Status: **Draft for approval.** Per-use-case diagrams will be generated after explicit approval of this set.
+Status: **Approved for both phases by user instruction on 20 October 2026.** Regenerated written/CSV records and per-use-case diagrams use the current sources. Proposed schema policies remain qualified despite authorization to generate the artifacts.
 
 ## Feature coverage
 
 | Proposal feature or section | Use case IDs | Coverage / status |
 | --- | --- | --- |
-| Users and Usage; build order: user accounts | UC-001 | Account creation is in scope; account fields and authentication behavior are unspecified. |
-| Overview; multiple profiles per account; profile creation | UC-002 | Create and access profiles; automatically create Savings, Debt, and Income categories. |
-| Users and Usage; editable and view-only sharing; owner-only access control | UC-003 | Owner manages access; editors can change the whole profile; viewers can view it. |
-| Profiles and Budget Periods: category/subcategory setup and comments | UC-004 | Maintain profile items and their optional comments. |
-| Profiles and Budget Periods: rename identity and remove subcategories | UC-004 | Preserve references, financial records, and balances; removal stops future tracking. |
-| Profiles and Budget Periods: saved credit cards; cash payment option | UC-005, UC-009, UC-010, UC-011 | Cards belong to the profile and are reusable across periods; Cash is available without being the default. |
-| Profiles and Budget Periods: first period, dates, selections, allocations | UC-006 | Select profile items and allocate each selected subcategory; category allocations are sums. |
-| Profiles and Budget Periods: later periods | UC-007 | Copy previous selections and allocations, start spending at zero, and allow independent adjustments. |
-| Profiles and Budget Periods: previous periods remain editable | UC-008, UC-009, UC-014, UC-015 | Review and correct prior periods; effects on later carried balances need clarification. |
-| Income, Savings, and Debt: expected and received income | UC-008, UC-009, UC-011 | Review expected/received income by subcategory; received income comes from approved Income transactions. Expected-income entry is unresolved. |
-| Income, Savings, and Debt: period totals and remaining amounts | UC-008 | Received income, allocations, spending, allocations minus spending, and income minus spending. |
-| Income, Savings, and Debt: savings balances, goals, resets, additions, withdrawals | UC-014, UC-007, UC-016 | Carry balances forward, show reset due, allow editing, and never reset automatically. |
-| Income, Savings, and Debt: debt paid/remaining amounts | UC-015, UC-007, UC-016 | Carry totals forward and keep calculated amounts editable. |
-| Transactions and IOUs: manual create/edit/delete and automatic approval | UC-009 | Selected-period assignment; optional comments; positive/negative amounts except positive-only Income. |
-| Transactions and IOUs: statement upload and pending records | UC-010 | Preserve imported ID, description, date/time, amount, and payment method; match saved card number. |
-| Transactions and IOUs: approve/split pending transactions | UC-011 | Assign to the selected approval period; linked entries can use different subcategories, comments, and multiple tags. |
-| Transactions and IOUs: default and custom tags | UC-012, UC-009, UC-011 | Default IOU and IOU REPAYMENT tags; separately manage custom tags and apply multiple tags. |
-| Transactions and IOUs: multiple repayments, including later periods | UC-013, UC-016 | Link repayments to one IOU within the same profile and report unpaid amounts. |
-| Profile Reports: savings, debt, and unpaid IOUs | UC-016 | Current subcategory amounts/goals, savings total, debt paid/remaining amounts, debt total, unpaid IOUs. |
-| Profile Reports: income between selected dates | UC-017 | Use transaction dates across periods. |
-| Profile Reports: spending over all dates or selected dates; category filters | UC-018 | Filter totals by category/subcategory and aggregate across periods. |
-| Profile Reports: combine items before/after rename | UC-016, UC-017, UC-018 | Aggregate by the same profile item, preserving history across names. |
-| Key Workflow; Suggested Build Order; Definition of Done | UC-001–UC-018 | Setup, budgets, financial activity, review, and reporting; ordering and completion criteria are supporting constraints. |
-| Scope: live bank connections and future saved-card matching | — | Deferred. No live-bank-connection use case is included in v1.0. |
-
-## Shared rules and unresolved details
-
-- **Roles:** the original owner alone can share a profile or change access. An editor may change all profile content, including previous periods. A view-only participant can read it. Every write flow below is subject to these permissions.
-- **Terminology:** “authorized writer” means the original owner or an editor. “participant” means an owner, editor, or view-only user with access. Interaction labels describe goals; they do not define screens or technical contracts.
-- **Financial consistency:** successful changes must be reflected in affected summaries and reports. The proposal does not define recalculation timing or how corrections to earlier savings/debt records propagate to later periods.
-- **Failure handling assumption:** a failed save or upload should be reported and should not be represented as a successful change. Validation and retry details remain unspecified.
-- **Account/profile lifecycle:** account fields, authentication, account recovery, profile naming, profile deletion, and ownership transfer are unspecified. Only account creation and profile creation/access are modeled.
-- **Item lifecycle:** treatment of removed subcategories in an already-created period, restoration, category removal, and special handling of automatic Savings/Debt/Income categories are unspecified. Removal must preserve history and stop future tracking.
-- **Period rules:** date validation, overlapping periods, empty selections, allocation amount limits, and the meaning of “previous period” when periods are entered out of order are unspecified.
-- **Income expectations:** expected income is required, but the proposal does not say whether it is entered separately or derived from Income allocations. UC-008 exposes this as an unresolved operation rather than selecting a rule.
-- **Payments/imports:** supported statement formats, duplicate imported IDs, unmatched/ambiguous card numbers, required payment selection, and editing/removing saved cards are unspecified. No default Cash selection or automatic creation of a missing card is assumed.
-- **Transaction rules:** required fields beyond those named in the proposal, zero amounts outside Income, manual splitting, deleting pending imports, and whether approved imports can be returned to pending are unspecified. Splitting is modeled during imported-transaction review.
-- **Split assumption to confirm:** linked split entries should preserve the original transaction total. The proposal describes splitting but does not explicitly state total validation, rounding, or retained source metadata.
-- **Tag/IOU rules:** default-tag editability, the effect of deleting a tag already used, repayment amount attribution, overpayment, unlinking, and IOU direction/sign conventions are unspecified. Tagging and linking are separate actions; applying a tag alone is not assumed to create a repayment link.
-- **Savings/debt rules:** goal/reset-period formats, manual reset behavior, starting-balance entry, whether additions/payments are transactions or separate adjustments, negative-balance rules, and precedence of manual overrides are unspecified.
-- **Reports:** date-boundary inclusivity, time zone, currencies, negative-transaction treatment, and spending classification are unspecified. The written flows assume pending imports do not affect financial totals until approval, consistent with the proposal's review workflow; confirm this interpretation.
-
-## UC-001 — Create a user account
-
-**ID:** UC-001  
-**Name:** Create a user account  
-**Actors:** Prospective user; application  
-**Preconditions:** The user needs an account to access budget profiles. Account creation is included in the proposed build order.
-
-**Main Flow**
-1. The user starts account creation.
-2. The application requests the account information required by the eventual account design.
-3. The user supplies the information and submits it.
-4. The application creates an account that can be used to access profiles.
-
-**Alternative Flows**
-- **2–3a:** Account requirements and invalid/duplicate-account rules are unresolved; do not assume particular credentials or verification steps.
-- **3–4a:** Creation fails; the application reports the failure without representing an account as created.
-
-**Postconditions:** On success, a user account exists. On failure, account creation is not confirmed. Sign-in and recovery workflows are outside this specification until requirements are defined.
-
-## UC-002 — Create and access budget profiles
-
-**ID:** UC-002  
-**Name:** Create and access budget profiles  
-**Actors:** Account holder; application  
-**Preconditions:** The user has a user account.
-
-**Main Flow**
-1. The user accesses the budget profiles available to their account.
-2. The user chooses to create a new profile.
-3. The application creates the profile with the user as its original owner.
-4. The application automatically creates Savings, Debt, and Income categories in that profile.
-5. The user opens the profile to begin setup.
-6. The user can return to their accessible profiles and open another profile.
-
-**Alternative Flows**
-- **1a:** No profiles are available; the user can create their first profile.
-- **2a:** The user opens an existing owned/shared profile; the application permits actions according to their role.
-- **3–4a:** Creation fails; the application reports the failure. Partial-creation recovery is unspecified.
-- **6a:** Access to a profile has been removed; the user cannot continue accessing it through their account.
-
-**Postconditions:** A newly created profile has its original owner and automatic categories, or an existing accessible profile is opened. Profiles remain independent and one account can access multiple profiles.
-
-## UC-003 — Share a profile and change access
-
-**ID:** UC-003  
-**Name:** Share a profile and change access  
-**Actors:** Original owner; recipient user; application  
-**Preconditions:** The profile exists. The acting user is its original owner. The recipient-identification and invitation mechanism are unspecified.
-
-**Main Flow**
-1. The original owner opens the profile's sharing controls.
-2. The owner identifies another user to receive access.
-3. The owner selects editor or view-only access.
-4. The application saves that user's access to the profile.
-5. The recipient accesses the profile with the assigned permissions.
-6. The owner can return to change or remove that user's access.
-
-**Alternative Flows**
-- **1a:** An editor or viewer tries to share the profile or change access; the application denies the action.
-- **2a:** The recipient cannot be identified; access is not granted. Invitation and acceptance behavior remains unresolved.
-- **3–5a:** An editor can modify all profile content but cannot manage sharing; a viewer can view but cannot modify content.
-- **4 or 6a:** Saving access fails; the requested change is not confirmed.
-
-**Postconditions:** Access reflects the owner's successful changes. Only the original owner retains authority to manage sharing.
-
-## UC-004 — Maintain categories and subcategories
-
-**ID:** UC-004  
-**Name:** Maintain categories and subcategories  
-**Actors:** Authorized writer; participant viewing comments/history; application  
-**Preconditions:** The user has access to a profile; changes require writer permission.
-
-**Main Flow**
-1. The user reviews the profile's categories, subcategories, and optional comments.
-2. An authorized writer adds or edits a category/subcategory and its optional comment.
-3. The application saves the item at profile level for use by budget periods.
-4. To rename an item, the writer changes its name.
-5. The application updates the same item; period references, allocations, transactions, history, and savings/debt balances remain associated with it.
-6. To stop tracking a subcategory, the writer removes it.
-7. The application preserves that subcategory's history and stops its future tracking.
-
-**Alternative Flows**
-- **1a:** A viewer reads items/comments but cannot save changes.
-- **2–3 or 4–5a:** A save fails; the requested change is not confirmed.
-- **6–7a:** The subcategory has historical activity; that activity remains available. Treatment in existing periods and restoration are unresolved.
-- **2 or 6a:** The user wants to delete a category or change special-category behavior; those rules are unresolved and are not inferred from subcategory removal.
-
-**Postconditions:** Profile items/comments reflect successful edits. Renames preserve identity and history; removed subcategories retain history and cease future tracking. Allocation amounts remain period-specific.
-
-## UC-005 — Save credit card payment methods
-
-**ID:** UC-005  
-**Name:** Save credit card payment methods  
-**Actors:** Authorized writer; application  
-**Preconditions:** The profile exists and the user has writer permission.
-
-**Main Flow**
-1. The user opens the profile's saved payment methods.
-2. The user supplies a credit card number to identify a card.
-3. The application saves the card in the profile.
-4. The saved card becomes available for transaction selection across that profile's periods and for imported-card-number matching.
-
-**Alternative Flows**
-- **2–3a:** The card cannot be saved; the application reports the issue. Number-validation and duplicate-card rules are unspecified.
-- **4a:** The user uses Cash for a transaction; Cash is always available and is not selected by default.
-- **1a:** Editing/removing a saved card is requested; the proposal does not define those operations or their effect on history.
-
-**Postconditions:** A successfully saved card is reusable within the profile. Saving it does not select a default transaction payment method.
-
-## UC-006 — Create the first budget period
-
-**ID:** UC-006  
-**Name:** Create the first budget period  
-**Actors:** Authorized writer; application  
-**Preconditions:** A profile exists with categories/subcategories available to reference and no previous period to copy.
-
-**Main Flow**
-1. The user starts creating a budget period in the profile.
-2. The user enters its start and end dates.
-3. The user selects the profile categories and subcategories to reference.
-4. The user sets an allocation for each selected subcategory.
-5. The application calculates each category's allocation as the sum of its selected subcategory allocations.
-6. The user saves the period.
-7. The application makes the period available for financial activity and review.
-
-**Alternative Flows**
-- **3–4a:** The user changes selections or allocations before saving; category totals reflect the revised selections.
-- **2–6a:** Dates, selections, or allocations are unacceptable under rules still to be defined; creation cannot be confirmed until corrected.
-- **6a:** Saving fails; creation is not confirmed.
-
-**Postconditions:** A period exists with its own dates, item references, and allocations. Saving the period does not redefine the profile items.
-
-## UC-007 — Create a later budget period
-
-**ID:** UC-007  
-**Name:** Create a later budget period  
-**Actors:** Authorized writer; application  
-**Preconditions:** The profile has a previous budget period to use as a starting point.
-
-**Main Flow**
-1. The user starts creating another budget period and supplies its start/end dates.
-2. The application starts with references to the profile categories/subcategories used in the previous period and copies their allocations.
-3. The application starts the new period's spending at zero and carries savings balances and debt totals forward.
-4. The user adjusts the new period's selections and subcategory allocations as needed.
-5. The application recalculates category allocations from the selected subcategories.
-6. The user saves the new period.
-7. Previous periods remain available with their existing selections, allocations, and activity.
-
-**Alternative Flows**
-- **2a:** A previously selected subcategory has been removed; it must not resume future tracking. The precise presentation of its preserved history is unresolved.
-- **2–3a:** The predecessor is ambiguous or an earlier balance was corrected; period-ordering and propagation rules require clarification.
-- **4a:** The user retains all copied selections/allocations and proceeds to save.
-- **6a:** Saving fails; creation of the new period is not confirmed.
-
-**Postconditions:** The new period has independently adjustable selections and allocations, zero starting spending, and carried savings/debt values. Creating it does not change earlier periods.
-
-## UC-008 — Review and correct a budget period
-
-**ID:** UC-008  
-**Name:** Review and correct a budget period  
-**Actors:** Participant; authorized writer for corrections; application  
-**Preconditions:** The user can access the profile and at least one budget period.
-
-**Main Flow**
-1. The user opens a current or previous budget period.
-2. The application shows its dates, selected items, allocations, and recorded financial activity, including expected/received income by Income subcategory.
-3. The application shows total income received, total allocated, total spending, allocated allowance remaining (allocations minus spending), and income remaining after spending (income minus spending).
-4. An authorized writer changes the period's selections or allocations when a correction is needed.
-5. The application saves the correction and updates category allocation totals and affected period summaries.
-6. The user reviews the resulting period; transaction, savings, and debt corrections follow UC-009, UC-014, and UC-015.
-
-**Alternative Flows**
-- **4a:** A viewer reviews the period without modifying it.
-- **2 or 4a:** The user needs to enter/change expected income; how this relates to allocations is unresolved. The final interaction must follow the clarified rule.
-- **4–5a:** A selected item has financial history or has been removed; rules for deselection and removed-item use in existing periods are unresolved, and history must be preserved.
-- **5a:** Saving fails; the requested correction is not confirmed.
-- **6a:** Editing a prior period affects carried savings/debt; propagation to later periods is unresolved.
-
-**Postconditions:** The participant can review the selected period. Successful corrections are saved and reflected in the affected summaries; previous periods remain accessible.
-
-## UC-009 — Create, edit, or delete an approved transaction
-
-**ID:** UC-009  
-**Name:** Create, edit, or delete an approved transaction  
-**Actors:** Authorized writer; application  
-**Preconditions:** The profile and target period exist; the user has writer permission and a relevant subcategory is available.
-
-**Main Flow**
-1. The user selects a budget period, including a previous period when correcting history.
-2. The user starts manual transaction entry and records its details, amount, and subcategory.
-3. The user selects a saved profile card or Cash as the payment method; Cash is available without being preselected by default.
-4. The user optionally enters a comment and applies one or more tags.
-5. The user saves the transaction.
-6. The application enforces a positive amount for Income transactions and automatically approves a valid manually created transaction in the selected period.
-7. The application saves the transaction/comment/tags and reflects approved activity in relevant tracking, summaries, and reports.
-8. To correct an approved transaction, the user opens it, edits its details or deletes it, and the application updates the affected records.
-
-**Alternative Flows**
-- **2 or 8a:** A non-Income transaction has a positive or negative amount; both signs are supported. Zero handling is unspecified.
-- **6 or 8a:** An Income amount is not positive; the application does not accept that transaction/change until corrected.
-- **3a:** No saved card is suitable; the user can save a card through UC-005 or deliberately select Cash when appropriate. Whether a payment method is mandatory is unresolved.
-- **5 or 8a:** Saving/deletion fails; the requested change is not confirmed.
-- **8b:** The transaction is part of a split or linked to an IOU; effects on linked entries/repayments require clarified consistency rules.
-
-**Postconditions:** A successfully created manual transaction is approved in the selected period. Successful edits/deletions are reflected in affected totals; comments are retained with transactions that still exist.
-
-## UC-010 — Upload a bank statement for review
-
-**ID:** UC-010  
-**Name:** Upload a bank statement for review  
-**Actors:** Authorized writer; application  
-**Preconditions:** The user has writer permission in the target profile and a bank statement to upload.
-
-**Main Flow**
-1. The user selects the target profile and uploads a statement.
-2. The application reads the statement transactions, including their ID, description, date/time, amount, and payment method information.
-3. The application matches each imported credit card number to a saved card in that profile and automatically selects the matching payment method.
-4. The application places the imported transactions in a pending review list.
-5. The user opens the list to begin review through UC-011.
-
-**Alternative Flows**
-- **1–2a:** Upload or statement reading fails; the application reports the issue. Supported formats and partial-import recovery are unresolved.
-- **3a:** No unique saved-card match is available; resolution is required before a payment method can be confirmed. Fallback behavior is unspecified; Cash is not assumed automatically.
-- **2–4a:** An imported transaction ID appears to be duplicated; duplicate detection and resolution are unresolved.
-
-**Postconditions:** Successfully imported records are pending review and retain their source details. Approval-period assignment occurs during UC-011. Under the stated assumption, pending records do not yet contribute to financial totals.
-
-## UC-011 — Approve or split a pending transaction
-
-**ID:** UC-011  
-**Name:** Approve or split a pending transaction  
-**Actors:** Authorized writer; application  
-**Preconditions:** The profile contains a pending imported transaction and a budget period that can receive the approval.
-
-**Main Flow**
-1. The user opens a pending transaction and reviews its imported details and matched payment method.
-2. The user selects the period for approval and assigns a subcategory.
-3. The user confirms the payment method and optionally adds a transaction comment and multiple tags.
-4. The user approves the transaction.
-5. The application validates the entry, including positive-only Income amounts, and saves it as approved in the selected period.
-6. The application resolves its pending review status and updates relevant financial tracking, summaries, and reports.
-
-**Alternative Flows**
-- **2–4a (split):** The user divides the transaction into linked entries, assigns each entry an amount and subcategory, and may assign different subcategories. For example, restaurant spending and a portion paid for others can be separate entries, with IOU applied to the latter. The user may add comments and multiple tags to each entry, then approve them in the selected period. The application preserves their link and updates totals. Preservation of the original total is an explicit assumption awaiting confirmation.
-- **1–3a:** Card matching was unresolved; the user resolves the payment method. Available choices include saved cards and Cash; the exact correction interaction is unspecified.
-- **5a:** An Income entry is zero or negative; approval requires a positive amount.
-- **4–6a:** Approval fails; completion is not confirmed and the user can continue review. Atomic handling of split entries is unspecified.
-- **1–4a:** The user leaves without approval; the transaction remains pending. Rejection/deletion of imports is unspecified.
-
-**Postconditions:** The transaction or its linked split entries are approved in the chosen period and retain saved comments/tags. The source is no longer an unresolved pending item on successful completion. Transaction dates remain distinct from approval-period assignment.
-
-## UC-012 — Manage transaction tags
-
-**ID:** UC-012  
-**Name:** Manage transaction tags  
-**Actors:** Authorized writer; application  
-**Preconditions:** The user has writer permission in a profile. Transactions can use multiple tags.
-
-**Main Flow**
-1. The user opens tag management separately from transaction entry/review.
-2. The application provides the default IOU and IOU REPAYMENT tags and existing custom tags.
-3. The user creates a custom tag or edits an existing custom tag.
-4. The application saves the tag for use on transactions.
-5. The user may delete a custom tag.
-6. The user applies available tags to an entry during UC-009 or UC-011; an entry can have more than one tag.
-
-**Alternative Flows**
-- **3–4a:** A tag cannot be saved; the application reports the issue. Naming/duplicate rules and cross-profile tag scope are unspecified.
-- **5a:** The tag is already used; the effect on existing transactions is unresolved.
-- **2–5a:** The user wants to edit/delete a default tag; default-tag mutability is unspecified.
-- **4 or 5a:** Saving/deletion fails; the requested change is not confirmed.
-
-**Postconditions:** Successful custom-tag changes are saved. Default IOU/IOU REPAYMENT tags are available, and successful transaction tagging preserves multiple tag associations. No repayment link is inferred from tagging alone.
-
-## UC-013 — Link repayments to an IOU
-
-**ID:** UC-013  
-**Name:** Link repayments to an IOU  
-**Actors:** Authorized writer; application  
-**Preconditions:** An approved IOU transaction and repayment transaction(s) exist within the same profile; the user has writer permission.
-
-**Main Flow**
-1. The user identifies an IOU transaction tagged IOU.
-2. The user identifies a repayment transaction using IOU REPAYMENT.
-3. The user links the repayment to that IOU.
-4. The application saves the link and reflects the repayment in the IOU's unpaid amount.
-5. The user repeats the process for additional repayments, including transactions in later periods of the same profile.
-6. The user reviews the remaining unpaid amount through UC-016.
-
-**Alternative Flows**
-- **2a:** A repayment has not yet been recorded/approved; the user first completes UC-009 or UC-011.
-- **3a:** The selected repayment belongs to another profile; it does not meet the same-profile requirement.
-- **3–4a:** The proposed link would overpay the IOU or needs a partial attribution; the handling rule is unresolved.
-- **4a:** Saving the link fails; the repayment is not confirmed as linked.
-- **5a:** A linked record later changes or is deleted; unlinking and recalculation rules are unresolved.
-
-**Postconditions:** Successfully linked repayments remain associated with one IOU across periods within the profile, and its unpaid amount reflects those links according to the eventual attribution rules.
-
-## UC-014 — Track and adjust savings
-
-**ID:** UC-014  
-**Name:** Track and adjust savings  
-**Actors:** Participant; authorized writer for changes; application  
-**Preconditions:** A Savings subcategory is available in the profile and the user can access its relevant period/history.
-
-**Main Flow**
-1. The user opens a Savings subcategory and reviews its current balance, goal, reset period, and period additions/withdrawals.
-2. An authorized writer sets or edits its goal, reset period, and editable balance information.
-3. The writer records or adjusts money added or withdrawn for the selected period, including correcting withdrawals.
-4. The application saves successful changes and reflects them in savings tracking and relevant summaries/reports.
-5. When a reset period is due, the application shows that it is due and leaves the balance unchanged by any automatic reset.
-6. The balance is carried forward when the next period is created through UC-007.
-
-**Alternative Flows**
-- **2–3a:** A viewer reviews the values without editing them.
-- **2–4a:** A balance/withdrawal needs correction in a previous period; it remains editable. Propagation to later balances requires clarification.
-- **3a:** A withdrawal or adjustment violates a rule yet to be defined; negative-balance and adjustment/transaction rules are unresolved.
-- **4a:** Saving fails; the requested change is not confirmed.
-- **5a:** The user wants to perform a manual reset; the proposal specifies a due indication but does not define a reset operation.
-
-**Postconditions:** Successfully edited savings values and period activity are retained and reportable. Balances carry forward; a due reset never causes an automatic reset.
-
-## UC-015 — Track and adjust debt
-
-**ID:** UC-015  
-**Name:** Track and adjust debt  
-**Actors:** Participant; authorized writer for changes; application  
-**Preconditions:** A Debt subcategory is available in the profile and the user can access its relevant period/history.
-
-**Main Flow**
-1. The user opens a Debt subcategory and reviews amounts paid and remaining.
-2. An authorized writer records or adjusts debt payment activity for the selected period.
-3. The application updates paid and remaining amounts from the recorded activity.
-4. The writer may edit the calculated amounts when a correction is needed.
-5. The application saves successful changes and reflects them in debt tracking and relevant summaries/reports.
-6. Debt totals carry forward when the next period is created through UC-007.
-
-**Alternative Flows**
-- **2 or 4a:** A viewer reviews the debt without changing it.
-- **2–5a:** The user corrects a previous period; it remains editable. Effects on later carried totals and override precedence require clarification.
-- **2–4a:** Initial debt entry, overpayment, negative remaining debt, and whether payments are separate adjustments or transactions are unresolved.
-- **5a:** Saving fails; the requested change is not confirmed.
-
-**Postconditions:** Debt paid/remaining values reflect successful recorded activity and permitted manual corrections. Those totals remain available for reporting and carry forward between periods.
-
-## UC-016 — Review savings, debt, and unpaid IOUs
-
-**ID:** UC-016  
-**Name:** Review savings, debt, and unpaid IOUs  
-**Actors:** Participant; application  
-**Preconditions:** The user can access a profile. Relevant records may span several budget periods.
-
-**Main Flow**
-1. The user opens the profile's savings/debt/IOU reports.
-2. The application shows each Savings subcategory's current amount and goal and total savings.
-3. The application shows each Debt subcategory's remaining and paid amounts and total remaining debt.
-4. The application shows IOU transactions with unpaid amounts after linked repayments, including repayments from later periods.
-5. The application combines records belonging to the same profile category/subcategory across periods and renames, preserving historical records.
-6. The user reviews the profile's financial position.
-
-**Alternative Flows**
-- **2–4a:** No relevant records exist; the report indicates the absence of records. Empty-total presentation is unspecified.
-- **2–5a:** An item was renamed/removed; history remains associated with the same item. Which removed items are included in current balance lists is unresolved.
-- **2–5b:** Loading/calculation fails; the application reports failure and does not represent incomplete results as complete.
-
-**Postconditions:** The user can review the profile's savings, debt, and unpaid IOUs without changing source records.
-
-## UC-017 — Report income for a date range
-
-**ID:** UC-017  
-**Name:** Report income for a date range  
-**Actors:** Participant; application  
-**Preconditions:** The user can access the profile.
-
-**Main Flow**
-1. The user opens the profile's income report.
-2. The user selects start and end dates.
-3. The application selects recorded income using transaction dates within the chosen range, across budget periods.
-4. The application combines any records for the same category/subcategory across renames and periods.
-5. The application shows total income earned for the selected dates.
-
-**Alternative Flows**
-- **2a:** The date range is invalid; the user must correct it. Date-boundary and time-zone rules are unresolved.
-- **3a:** No matching income exists; the report indicates no matching activity.
-- **3–5a:** Loading/calculation fails; the application reports failure without representing incomplete results as complete.
-- **2–5a:** The user changes the selected dates; the report recomputes using the new transaction-date range.
-
-**Postconditions:** The report shows recorded income for the chosen transaction-date range, independent of approval-period dates. Source transactions remain unchanged.
-
-## UC-018 — Report spending by date and category
-
-**ID:** UC-018  
-**Name:** Report spending by date and category  
-**Actors:** Participant; application  
-**Preconditions:** The user can access the profile.
-
-**Main Flow**
-1. The user opens the profile's spending report.
-2. The user chooses all transaction dates or a selected start/end date range.
-3. The user optionally filters totals by category or subcategory.
-4. The application selects matching spending using transaction dates across budget periods.
-5. The application combines records for the same profile item, including records from before it was renamed.
-6. The application shows spending totals for the chosen dates and filters.
-7. The user changes or clears filters to review another view of spending.
-
-**Alternative Flows**
-- **2a:** The date range is invalid; the user corrects it. Date boundaries and time zones are unresolved.
-- **3–6a:** A selected item has been renamed or removed; its preserved historical records remain associated with the same item. Historical filter presentation is unspecified.
-- **4a:** No activity matches; the report indicates no matching activity.
-- **4–6a:** Loading/calculation fails; the application reports failure without representing incomplete results as complete.
-- **4–6b:** Positive/negative transactions, IOU repayments, or savings/debt activity need classification as spending; the proposal leaves their precise netting/classification rules unresolved.
-
-**Postconditions:** The user can review spending totals for all dates or a chosen transaction-date range and category/subcategory filter, with history combined across periods and renames. Source records remain unchanged.
-
-## Approval and next step
-
-Approve or revise UC-001–UC-018 and the stated assumptions before diagram generation. Approval authorizes three conceptual Mermaid documents (`flow.md`, `states.md`, and `sequence.md`) for every approved use case under this version's `use_cases/` directory. Unresolved rules will remain visibly qualified unless clarified; diagram generation will not invent screens, endpoints, or implementation contracts.
+| Users and Usage: account identity and email/first/last names | UC-001 | Covered; requiredness, verification and authentication remain open (D14). |
+| Profiles, multiple-profile access, automatic categories/Cash/default tags | UC-002, UC-005, UC-012 | Covered; no ownership-transfer or profile-deletion goal inferred. |
+| Owner-only sharing; whole-profile editors; view-only access | UC-003; all write/read flows | Covered; permissions apply throughout. |
+| Profile main/additional currencies; no conversion | UC-019, UC-009, UC-011 | Covered (D11); proposed lifecycle policies A12/A13 remain qualified. |
+| Categories/subcategories and optional comments; stable rename identity | UC-004 | Covered; identity and history retained. |
+| Protected system categories; ordinary-category/subcategory deletion | UC-004 | Covered (D12/D13); parent retirement preserves independent child status. |
+| Deletion versus temporary period omission; no erased obligations | UC-004, UC-006, UC-007, UC-008, UC-016, UC-018 | Covered; restoration is not defined. |
+| Saved cards and explicit Cash; imported matching | UC-005, UC-009, UC-010, UC-011 | Covered; duplicate-card rule A3 remains proposed. |
+| First-period dates, selections, allocations and category sums | UC-006 | Covered in main currency; validation policies stay qualified. |
+| Date-ordered later periods; independent copies; zero spending | UC-007 | Covered (D6); overlapping/equal-date predecessor choice stays open. |
+| Historical period review/correction; selection independence | UC-008, UC-009, UC-014, UC-015 | Covered; no orphan references under schema consistency rules. |
+| Expected Income equals allocation; received income and period totals | UC-006, UC-008, UC-009, UC-011 | Covered (D5); spending/allocation inclusion policy A9 remains proposed. |
+| Savings goals, informational reset note, manual zero reset | UC-014 | Covered (D2); no due-date scheduler or automatic reset. |
+| Signed Savings/Debt movements; allocation does not alter debt | UC-009, UC-014, UC-015 | Covered (D6); reports use main amounts. |
+| Dated delta corrections; independent debt metrics; later propagation | UC-014, UC-015, UC-016 | Covered (D1); manual reset is a delta, not a fixed checkpoint. Correction deletion undecided. |
+| Manual automatic approval; edit/delete; optional comments | UC-009 | Covered; imported deletion/review lifecycle A8 stays proposed. |
+| Statement source ID/details/date/amount/currency/method; pending review | UC-010 | Covered; formats, duplicates and unknown-currency handling open. |
+| Main-required foreign approval; descriptive optional valuations | UC-011, UC-019 | Covered (D11); no conversion or incomplete approved totals. |
+| Linked splits; shared date/time/payment/period; atomic approval | UC-011, UC-009 | Covered (D3/D7); each supplied currency reconciles independently (D10). |
+| Per-entry multiple tags; default/custom management | UC-012, UC-009, UC-011 | Covered; default-role lifecycle and used-tag cleanup A5 stay qualified. |
+| Multiple repayments per IOU; one target per repayment; later periods | UC-013, UC-016 | Covered (D4); full-magnitude/overpayment policy A6 remains proposed. |
+| Savings/debt/unpaid reports, retired obligations, rename aggregation | UC-016 | Covered; main currency only, dated corrections retained. |
+| Income/spending by transaction date; all dates/ranges; item filters | UC-017, UC-018 | Covered; approval period is distinct from transaction date. |
+| Workflow, suggested build order, completion criteria | UC-001–UC-019 | Supporting delivery constraints; no extra fictional interaction. |
+| Live bank connections with saved-card matching | — | Deferred by proposal; no v1.0 live-connection use case. |
+| Restoration; correction deletion; FX/revaluation workflows | — | Not established requirements; no new use cases invented. |
+
+## Rules, authority, and open decisions
+
+- **Authority:** the current proposal defines scope. The schema's confirmed D1–D7 and D10–D15 interpret that scope; its A-series entries remain proposed policies. No database or application implementation is implied. D15's Transaction name is a logical-model rename, not a new user goal.
+- **Permissions and identity:** only the original owner manages access; owners/editors write profile content, including historical periods; viewers read. Names and email are not identity keys. Duplicate display names do not silently identify records.
+- **Confirmed monetary rules:** main-currency amounts alone drive calculations; alternatives are manually entered descriptions of the same event. Foreign approval requires main values, and every supplied split currency has a complete independent distribution. Income supplied values must be positive. No conversion, exchange-rate lookup, or rate storage is introduced.
+- **Confirmed lifecycle:** ordinary categories and any subcategory can stop future tracking without erasing history; system categories cannot be deleted. Parent deletion does not overwrite child deletion status. Omission is temporary selection absence, and balances/unpaid obligations remain reportable. Restoration is not a defined feature.
+- **Confirmed balances:** Savings/Debt use approved signed movements plus dated delta corrections. A desired target T against calculated B records T minus B; resetting Savings to zero records minus B. Earlier changes affect later values, even after resets. Debt paid and remaining corrections are independent. The reset note performs no due-date calculation.
+- **Schema consistency:** shared split period/date/payment, complete same-profile references, independent currency conservation, and no orphan transaction/correction selections are respected. The UI and service boundaries in diagrams are conceptual; no HTTP contracts are specified.
+- **Proposed policies, not silently approved requirements:** A3 card canonical uniqueness; A5 tag scope/used-tag cleanup/default-role lifecycle; A6 full absolute IOU credit, attribution and overpayment; A8 reviewed-source retention after approved deletion; A9 non-Income net spending and allocation inclusion; A10 inclusive date boundaries/current-time policy; A11 payment requiredness and nonnegative plans/goals; A12 main-currency stability; A13 disabling referenced alternatives and enabling source currencies. Where a diagram needs one of these, it labels the proposal or leaves the outcome open.
+- **Still open:** account requiredness/email uniqueness/verification/sign-in; statement formats and deduplication; invalid/unknown currencies; amount precision/rounding and non-Income zero/sign rules; overlapping/equal-date predecessor choice; negative balances; IOU direction/partial credit/overpayment; date/time zones and out-of-period/future corrections; main-currency history changes; default-tag lifecycle. Deleting dated corrections is undecided, and fixed replacement checkpoints are not selected.
+- **Failure-handling assumption:** failed mutations are not presented as saved; imported group approval is all together, with pending source and no partial approved financial effects on failure. Loading/report failures are shown without presenting incomplete results as complete.
+
+## Reconciliation with previous outputs
+
+All 19 existing IDs and names are retained; no distinct new goal requires UC-020. Account fields, protected/ordinary deletion, temporary omission, date ordering, expected Income, informational reset notes, dated corrections, currency rules, group conservation and one-target repayment are incorporated directly into the affected specifications and diagrams. Earlier conflicting wording is preserved in [the prior output snapshot](history/2026-10-20-before-regeneration/use-cases.md), rather than left as current contradictory requirements. Schema assumptions remain explicit. The proposal, schema design, and its SVG exports are not edited by this task.
+
+
+## Use case table
+
+[CSV export](use-cases.csv) contains the identical seven columns, ordered records, and complete multiline values. Presentation line breaks do not change field values.
+
+| ID | Name | Actors | Preconditions | Main Flow | Alternative Flows | Postconditions |
+| --- | --- | --- | --- | --- | --- | --- |
+| UC-001 | Create a user account | Prospective user; application | The prospective user needs an account to access budget profiles. Authentication and account-field requiredness are not yet defined. | 1. Start account creation.<br>2. Provide an email address, first name, and last name as separate account facts, subject to requiredness rules still to be decided.<br>3. Submit the account information.<br>4. The application creates a stable account identity independently of those editable personal details.<br>5. Review the creation result and proceed to profile access. | - 2a: Required fields, email uniqueness/comparison, verification, and sign-in rules remain undecided; do not infer them from the logical dictionary's provisional optionality.<br>- 3–4a: Creation fails; show the issue without confirming an account was created. | On success, a stable account exists with the supplied email, first-name, and last-name facts kept separately from its identity. No authentication or recovery workflow is implied. |
+| UC-002 | Create and access budget profiles | Account holder; application | The user has an account and can access zero or more profiles. | 1. Open the profiles accessible to the account.<br>2. Choose to create a profile and configure its main currency and optional additional currencies through UC-019.<br>3. Create the profile with the current user as original owner.<br>4. Create the automatic Income, Savings, and Debt categories, make Cash available without preselecting it, and provide the default IOU and IOU REPAYMENT tags.<br>5. Open the profile with the user's assigned permissions.<br>6. Return to the accessible-profile list to open another owned or shared profile. | - 1a: No accessible profiles exist; create the first profile.<br>- 2a: Open an existing profile instead of creating one.<br>- 3–4a: Creation fails; report failure. Recovery from partially created default records remains unspecified.<br>- 5–6a: Access has been removed; do not allow access through the former grant. | A created profile has its original owner, currency configuration, and automatic/default records. Existing profiles open only with current access. One account may access multiple independent profiles. |
+| UC-003 | Share a profile and change access | Original owner; recipient user; application | A profile exists; only its original owner may manage access. Recipient identification and invitations are not defined. | 1. The original owner opens profile sharing.<br>2. Identify a recipient account or an existing participant.<br>3. Choose editor or view-only access, or change/remove an existing grant.<br>4. Save the access change.<br>5. The recipient can access the profile only with the saved permissions. | - 1a: An editor or viewer attempts to share or change access; deny the operation.<br>- 2a: The recipient cannot be identified; do not grant access. Invitation/acceptance mechanics remain open.<br>- 4a: Saving fails; the change is not confirmed.<br>- 5a: Editors may change the whole profile, including historical periods, but cannot manage sharing; viewers can read only. | Successful grants or removals govern profile access. The original owner remains the only sharing authority; changing a grant does not transfer ownership. |
+| UC-004 | Maintain categories and subcategories | Authorized writer; participant viewing items and history; application | The user can access the profile. Changing categories, subcategories, or comments requires owner/editor permission. | 1. Review profile categories, subcategories, and optional comments.<br>2. Add or edit an item or its comment.<br>3. Rename an existing item when needed; retain the same identity, category kind, period references, allocations, transactions, and balances.<br>4. To stop future tracking, explicitly delete an ordinary category or any subcategory. Income, Savings, and Debt categories cannot be deleted.<br>5. Retain deleted items and historical facts. Exclude them from new selections and future period copies; deleting a parent makes all children unavailable without overwriting each child's independent deletion status.<br>6. Review existing periods for correction and relevant profile reports for retained balances and outstanding obligations. | - 2–4a: A viewer reviews items/comments but cannot save changes.<br>- 4a: Attempting to delete an Income, Savings, or Debt category is rejected; their subcategories may be deleted from future tracking.<br>- 4–5a: A child was independently deleted before its parent; parent deletion does not erase that separate status. Restoration remains undefined.<br>- 4b: Only omit/deselect an item for a period through UC-006–008; this is not item deletion and does not prevent future reselection.<br>- 2–5a: Saving fails; the requested change is not confirmed. | Successful edits preserve stable item identity. Explicit deletion stops new tracking without removing history, existing-period correction access, balances, or unpaid obligations. No restoration feature is introduced. |
+| UC-005 | Save credit card payment methods | Authorized writer; application | A profile exists and the user has owner/editor permission to save payment methods. | 1. Open saved payment methods for the profile.<br>2. Enter a credit card number identifying a saved card.<br>3. Save the card as a profile payment method.<br>4. Use the saved method across the profile's periods for transaction selection and imported-card matching. | - 2–3a: Card validation fails or saving fails; report the issue without confirming a save.<br>- 2b: Profile-scoped canonical-number uniqueness is schema proposal A3, not an additional confirmed user rule; exact duplicate/normalization behavior remains open.<br>- 4a: Cash is always available as an explicit transaction choice but is not preselected by default.<br>- 1a: Card editing/removal and historical reference handling are not defined as user workflows. | A successfully saved card is reusable within its profile; saving it does not choose a default payment method. |
+| UC-006 | Create the first budget period | Authorized writer; application | The profile and its main currency exist. The writer is creating its first budget period. | 1. Start a period and enter start/end dates.<br>2. Select available profile categories and subcategories; explicitly deleted items or children of deleted categories are unavailable for new selection.<br>3. Enter each selected subcategory's allocation in the profile main currency. For Income, that allocation is expected income.<br>4. Calculate each category allocation as the sum of its selected subcategory allocations.<br>5. Review selections and amounts, then save the period.<br>6. Open the period for financial activity and review. | - 2–4a: Change selections/allocations before saving; recalculate category sums. Zero allocation is different from omitting an item.<br>- 2b: Leave an active item unselected; it remains available for a later period.<br>- 1 or 3a: Date/amount validation details, empty selections, and overlapping-period policy remain open; schema nonnegative/date constraints are proposed policies.<br>- 5a: Saving fails; period creation is not confirmed. | The period owns its dates, references, and main-currency allocations. Expected Income amounts are those allocations; no separate expected-income field is needed. Omitting an item does not delete it. |
+| UC-007 | Create a later budget period | Authorized writer; application | The profile has existing periods and an identifiable predecessor according to period dates, rather than creation order. | 1. Enter start/end dates for the new period.<br>2. Identify the previous period by date order.<br>3. Reuse its category/subcategory references and copy allocations, excluding explicitly deleted items and children of deleted categories.<br>4. Start the new period's spending at zero; derive savings/debt carry from the retained transaction/correction timeline rather than copying a fixed financial checkpoint.<br>5. Adjust the new period's available item selections and allocations; an active item omitted from earlier periods can be selected again.<br>6. Recalculate category sums in the profile main currency and save the new period. | - 2a: Equal or overlapping dates make the predecessor ambiguous; its resolution policy remains open, with no arbitrary ID/creation-order tie-break assumed.<br>- 3a: A copied item was deleted; do not resume its future tracking, but retain balances/obligations for relevant reports.<br>- 4a: Earlier activity/corrections change; later derived balances change, including values after a manual reset.<br>- 5a: Keep copied selections/allocations without adjustment. Changes to this new period do not overwrite earlier periods.<br>- 6a: Saving fails; new-period creation is not confirmed. | A successful later period has independent references/allocations and zero starting spending. Date-ordered financial history carries forward without erasing omitted/deleted-item obligations or rewriting other periods' allocations. |
+| UC-008 | Review and correct a budget period | Participant; authorized writer for corrections; application | The participant can access a profile containing at least one budget period; setup corrections require writer permission. | 1. Open a current or previous period.<br>2. Review dates, selected items, main-currency allocations, financial activity, and expected/received income. Expected Income equals its subcategory allocation.<br>3. Review received income, total allocation, spending, allocation minus spending, and income minus spending; only main-currency approved values feed calculations.<br>4. An authorized writer adjusts the selected period's allocations or selections when needed.<br>5. Save the correction and refresh affected period totals. Other periods' saved allocations/selections do not change.<br>6. Use UC-009 for transaction corrections and UC-014/015 for dated balance corrections; those historical financial changes propagate to subsequent derived balances. | - 4a: A viewer reviews without writing.<br>- 4b: Omitting an active item does not delete it and permits later reselection. Existing historical selections of explicitly deleted items remain available for correction.<br>- 4c: Under the schema's consistency rule, selection removal must not orphan classified transactions or assigned corrections; retain the historical selection or first resolve the references. Exact reclassification interaction is unspecified.<br>- 3a: Inclusion of Income allocations and classification/netting of Savings/Debt in spending remain proposed policy A9, not settled product rules.<br>- 5a: Saving fails; the correction is not confirmed. | The selected period remains reviewable and successful corrections are reflected in its totals. Main-currency calculations exclude descriptive alternatives. Historical financial corrections propagate while unrelated saved period configurations remain independent. |
+| UC-009 | Create, edit, or delete an approved transaction | Authorized writer; application | A profile main currency and target period exist. The writer can use the selected subcategory and a profile payment method; historical corrections of retained items are permitted. | 1. Select a current or previous budget period.<br>2. For manual creation, enter transaction date/time, description, selected subcategory, and an amount in the profile main currency.<br>3. Choose a saved card or Cash explicitly; optionally enter amounts manually in other enabled currencies, a comment, and multiple tags. No system conversion occurs.<br>4. Save one manual transaction with one approved entry in the selected period. Income amounts must be positive in every supplied valuation.<br>5. Reflect its main-currency activity in income/spending, savings/debt balances, and reports. Alternative values describe the same event and are excluded from arithmetic.<br>6. To correct existing approved activity, edit transaction/entry details or request deletion. Split entries retain shared date/time, payment method, and period; amount edits/deletions must maintain each retained currency total across the group.<br>7. Apply successful corrections/deletions, resolve dependent links, and recalculate affected historical/subsequent balances and reports. | - 2–4a: Non-Income amounts may be positive or negative; zero and paired-sign/precision policies remain open. Income values must be strictly positive.<br>- 3a: Leave optional alternative amounts blank; the required main amount still supplies calculations. Cash is available but never the default.<br>- 6a: Removing one split portion requires rebalancing remaining portions consistently or deleting the whole operation; manual splitting is not introduced as a separate feature.<br>- 6–7a: A repayment deletion removes its link; deleting an IOU target requires resolving surviving repayment references. Detailed unlink interaction is not specified.<br>- 6b: Schema A8 proposes retaining an approved import's source as reviewed after deletion rather than requeuing it; this lifecycle policy remains proposed.<br>- 4 or 7a: A save/delete fails; do not confirm the change or show a partial successful result. | Successful manual creation is approved immediately in the selected period. Successful changes preserve group consistency and update financial effects, including subsequent balances. Imported source facts remain distinguishable from editable approved facts. |
+| UC-010 | Upload a bank statement for review | Authorized writer; application | The writer can access the target profile and has a statement to upload; statement formats are not yet specified. | 1. Select the target profile and upload the statement.<br>2. Read each source ID, description, date/time, amount, currency, and payment reference; retain these source facts independently of approved entries.<br>3. Match the imported card number against saved cards in that profile and automatically select the unique matching method when available.<br>4. Show successfully imported records in pending review; they contribute nothing to financial totals.<br>5. Continue through UC-011, where the approval period and required main-currency amounts are supplied. | - 1–2a: Upload/parsing fails; report the issue. Partial-import recovery is unspecified.<br>- 3a: No unique card match exists; keep payment resolution pending and never silently select Cash.<br>- 2b: A source ID appears duplicated; no bank/account uniqueness namespace or deduplication policy is established.<br>- 2c: Source currency is missing or unsupported; resolution/format rules remain open. A recognized foreign-currency source can remain pending until main-currency valuation is entered at approval. | Imported source records remain pending, retaining source identity/details and amount/currency. Pending rows have no approved financial effects; matching/payment issues and main valuation are resolved during review. |
+| UC-011 | Approve or split a pending transaction | Authorized writer; application | An imported source is pending in the profile. The writer can choose a receiving period and its selected subcategories; profile main currency is known. | 1. Open the pending source and review its original amount/currency, description, date/time, and matched payment method.<br>2. Choose one approval period, one shared transaction date/time, and one shared profile payment method for the operation.<br>3. Use the source main amount if currencies match. For a foreign source, manually supply a whole-transaction value in the profile main currency; optionally supply other enabled-currency valuations. The system performs no conversion.<br>4. Keep one entry or define linked split entries. Assign each its subcategory, description/comment, and independent multiple tags. Distribute the source amount and every supplied currency value across all entries.<br>5. Validate every currency independently: source portions equal the original source total, and each other currency's portions equal its entered total. Require complete source/main values and positive supplied Income values; all entries share the same date/time, payment method, and period.<br>6. Approve all entries together as one operation, resolve source review status, and reflect main-currency effects in financial tracking and reports. | - 2a: Resolve unmatched payment explicitly; Cash is available without being an automatic fallback. Payment requiredness is documented as schema A11 where beyond the proposal.<br>- 3a: A foreign import lacks a main amount; keep it pending until the user supplies that amount. A same-main import needs no alternative valuation.<br>- 3b: Unknown/disabled currency handling and enabling a recognized foreign source before approval are governed by open rules/proposed schema A13, rather than an invented conversion path.<br>- 4a: For a restaurant split, tag only the for-others entry IOU if applicable; siblings keep independently chosen tags/comments.<br>- 5a: A distribution is incomplete, any currency fails to reconcile, or an Income valuation is nonpositive; correct it before approval. No automatic proportional split is assumed. Precision/rounding policy remains open.<br>- 6a: Approval fails; the source remains pending without partial approved financial effects.<br>- 1–5a: Leave without approval; keep the source pending. | All entries are approved together in one period with one shared transaction date/time and payment method. Source/entered totals reconcile per currency; the source is reviewed. Only main-currency amounts enter calculations, while source provenance and descriptive alternatives remain retained. |
+| UC-012 | Manage transaction tags | Authorized writer; application | The writer can manage tags in the profile. Transaction entries may carry multiple independent tags. | 1. Open tag management separately from transaction entry/review.<br>2. Review the default IOU and IOU REPAYMENT roles and existing custom tags.<br>3. Create or edit a custom tag and save it.<br>4. Delete a custom tag when requested, keeping financial transactions intact.<br>5. Apply available tags independently to entries through UC-009 or UC-011; tagging alone does not link an IOU repayment. | - 3a: Naming/duplicate rules are unspecified; profile scope and used-tag association cleanup are proposed schema A5.<br>- 4a: Effects on existing associations and active IOU links follow the schema's proposed cleanup/link-preservation rules and need confirmation as product policy.<br>- 2–4a: Default-role edit/delete policy remains undefined; availability of the default roles is required.<br>- 3–4b: Saving/deletion fails; the change is not confirmed. | Successful custom-tag changes are retained without deleting financial entries. Each entry can have several tags, independently of its split siblings; explicit repayment links are managed in UC-013. |
+| UC-013 | Link repayments to an IOU | Authorized writer; application | Approved IOU and repayment entries exist in the same profile with required main-currency values. IOU and IOU REPAYMENT roles identify their uses. | 1. Select an IOU entry and a distinct approved repayment entry.<br>2. Check that both belong to the same profile and that the repayment is not already linked to another IOU.<br>3. Explicitly save the repayment-to-IOU link.<br>4. Reflect the repayment in the unpaid amount using their common profile main-currency values, regardless of source currencies.<br>5. Repeat with different repayments, including entries from later periods, then review unpaid amounts through UC-016. | - 1a: Record/approve a missing repayment through UC-009 or UC-011 first.<br>- 2a: Different profiles or an already-linked repayment violate the confirmed relationship; do not create another IOU target for that repayment.<br>- 3a: Saving fails; the link is not confirmed.<br>- 4a: Full absolute repayment credit is proposed schema A6; direction, partial attribution, overpayment, and both-role tagging remain open. No additional allocation workflow is invented.<br>- 4b: A foreign source must already have a main valuation before it can be approved and linked; descriptive alternative amounts are not added to unpaid totals.<br>- 5a: Editing/deleting linked activity requires preserving valid references and recalculating unpaid amounts. Detailed unlinking interaction remains unspecified. | Each saved repayment entry links to one IOU, while one IOU may have multiple repayments across periods. Unpaid calculations use one profile main unit and retained valid links. |
+| UC-014 | Track and adjust savings | Participant; authorized writer for changes; application | A Savings subcategory is accessible, including retained historical items. Reading is permitted to participants; changes require writer permission. A main-currency balance is derived from approved movements plus dated corrections. | 1. Review current savings balance, goal, reset note, and period additions/withdrawals.<br>2. Set/edit the goal and informational reset note, such as every 12 months. The note does not calculate a due date or trigger a reset.<br>3. Record or correct Savings transactions through UC-009/011: positive amounts add funds and negative amounts withdraw them.<br>4. For an opening balance or manual balance edit, choose an effective date/time and desired main-currency balance T; calculate the current amount B at that point and record a correction delta T minus B, with an optional explanation.<br>5. To reset manually, choose a desired balance of zero and record the dated delta minus B; do not create a fixed replacement checkpoint.<br>6. Save successful settings/corrections and derive later balances from approved transactions and all effective deltas, carrying them through selection gaps and explicit deletion. | - 2–5a: Viewers read but cannot change settings, transactions, or corrections.<br>- 4a: An opening correction may precede the first period; optional period association follows the schema design.<br>- 3 or 6a: A backdated transaction/correction changes all subsequent derived balances, including those after a manual reset; a reset does not permanently force a later balance to stay zero.<br>- 4b: Do not calculate a target delta from incomplete main-currency facts. Correction precision/date boundaries and negative-balance policy remain open.<br>- 6b: Saving fails; the change is not confirmed. Deleting a dated balance correction is not yet an approved feature. | Savings uses signed approved movements plus dated delta corrections. Goals/reset notes remain settings, reset timing is interpreted manually, and no automatic due/reset behavior exists. History, balances, and later propagation survive deletion or omitted period selections. |
+| UC-015 | Track and adjust debt | Participant; authorized writer for changes; application | An accessible Debt subcategory has main-currency movement/correction history. Changes require writer permission; debt paid and debt remaining are separate derived metrics. | 1. Review debt paid, debt remaining, and the selected period's activity.<br>2. Record or correct approved Debt transactions: positive payments increase paid and decrease remaining; negative payments reverse both effects. Allocations are plans and never alter debt balances.<br>3. For an opening amount or manual edit, select debt paid or debt remaining and an effective date/time.<br>4. Calculate the selected metric B at that time and record the desired target T as a signed delta T minus B, optionally explained in a comment.<br>5. If both metrics need correction, record separate corrections; changing remaining alone does not silently change paid.<br>6. Save and derive subsequent paid/remaining amounts from movements and the applicable metric deltas, including after earlier corrections. | - 2–5a: Viewers review only.<br>- 3a: Opening debt remaining can be recorded before a budget period; repeated same-date corrections are distinct events.<br>- 2 or 6a: A negative Debt payment increases remaining and decreases paid. Earlier corrections change subsequent totals rather than being hidden behind later fixed overrides.<br>- 4a: Main-currency facts must be complete before deriving a target delta. Negative remaining debt, overpayment, precision, and date-boundary policies remain open.<br>- 6b: Saving fails; the change is not confirmed. Correction deletion is not an approved workflow. | Debt totals carry forward as derived movement-plus-delta values. Paid and remaining corrections remain independent, and saved allocations do not change debt balances. Retained historical/omitted items remain reportable. |
+| UC-016 | Review savings, debt, and unpaid IOUs | Participant; application | The participant can access the profile. Approved entries and dated corrections may span multiple periods and retained deleted/omitted items. | 1. Open the profile savings/debt/IOU reports.<br>2. Combine same-item records across periods and renames using stable identities. Include retained balances and outstanding obligations despite explicit deletion or selection gaps.<br>3. Show each Savings subcategory's current balance and goal, plus total savings, using approved signed movements and dated corrections.<br>4. Show each Debt subcategory's paid and remaining amounts and total remaining debt from signed payments and independent metric corrections.<br>5. Show IOUs with unpaid amounts after linked repayments, including repayments in later periods.<br>6. Use only the profile main currency for report calculations; alternative entered amounts are descriptive, and pending imports do not contribute. | - 2–5a: No relevant records exist; indicate their absence. Empty presentation is not specified.<br>- 2–4a: A backdated correction changes later derived values, including those after a reset; report the recomputed position without losing history.<br>- 5a: IOU direction, full/partial credit, and overpayment handling remain proposed/open under schema A6.<br>- 3–6a: Loading/calculation fails; show failure without representing incomplete results as complete. Exact current-time and date-boundary policy remains open under A10. | The participant reviews financial position in one main currency without changing facts. Deleted/omitted items' balances and unpaid obligations remain visible where relevant, with history combined across renames. |
+| UC-017 | Report income for a date range | Participant; application | The participant can access the profile and choose a report date range. | 1. Open the income report and select start/end dates.<br>2. Select approved Income entries by their shared transaction date/time across all approval periods.<br>3. Combine entries for the same profile item across renames and retained history.<br>4. Show total income for the selected transaction-date range using only each entry's profile main amount.<br>5. Change dates to recompute the report. | - 1a: The range is invalid under date rules yet to be finalized; request correction. Inclusive boundaries and time zone remain proposed/open A10.<br>- 2a: A transaction dated in January but approved into February belongs to the January date report and February period activity.<br>- 2–4a: No matching income exists; show no matching activity. Pending imports and alternative-currency representations never add extra income.<br>- 2–4b: Load/calculation fails; show failure without a complete result. | The report presents main-currency income for transaction dates, independently of approval-period dates, without changing source records. |
+| UC-018 | Report spending by date and category | Participant; application | The participant can access the profile and choose all transaction dates or a selected range. | 1. Open the spending report and select all dates or a start/end date range.<br>2. Optionally filter totals by category or subcategory, using stable item identity.<br>3. Select matching approved activity by transaction dates across periods, including retained history from renamed/deleted items.<br>4. Show main-currency spending totals using one amount per entry; exclude alternative representations and pending imports.<br>5. Change or clear date/item filters and recompute. | - 1a: An invalid selected range needs correction; inclusivity/time-zone policy remains proposed/open A10.<br>- 3a: No matching activity exists; show no matching activity.<br>- 3–4a: Signed non-Income netting and inclusion/exclusion of Savings/Debt movements remain proposed policy A9. Do not silently classify every transfer as established spending.<br>- 3–4b: Loading/calculation fails; show failure without a complete result.<br>- 2–3a: Explicit deletion or period omission must not erase historical records or their relevant report visibility; filter presentation remains a design choice. | The participant can inspect main-currency spending under selected date/item filters with history combined across periods and renames. Reporting does not mutate recorded activity. |
+| UC-019 | Configure profile currencies | Authorized writer; participant viewing settings; application | The participant is setting up or accessing a profile. Saving settings requires owner/editor permission. Initial supported currencies include GBP and USD; no initial main default is specified. | 1. Open profile currency settings.<br>2. Review available choices, the current main currency, and enabled additional currencies.<br>3. An authorized writer chooses the profile main currency and optionally enables additional supported currencies, such as USD for a GBP profile or GBP for a USD profile.<br>4. Save the configuration.<br>5. Use the main unit for allocations, goals, dated corrections, summaries, and reports. UC-009 uses it for manual entry; UC-011 requires it before foreign-import approval.<br>6. Review saved settings. Additional manually entered valuations describe the same event, are excluded from arithmetic, and never cause system conversion. | - 3a: Viewers can review but cannot save. No additional currency is required.<br>- 3b: Schema A12 proposes keeping main currency stable after financial facts exist; A13 proposes restricting used-currency disabling and enabling foreign source currencies before approval. These are proposed lifecycle policies, not newly confirmed user workflows.<br>- 3c: Further catalog support and historical currency-change/revaluation policy remain unspecified; no relabeling, conversion, or history deletion is invented.<br>- 4a: Saving fails; the requested change is not confirmed.<br>- 5a: A foreign import lacks a main amount; it remains pending until the user supplies one manually. Same-main imports need no alternative amount; complete split distributions still apply to every supplied currency. | Saved configuration supplies one calculation unit and optional descriptive alternatives. Main amounts are required for approved activity, and no system conversion or double counting is introduced. Historical main-currency changes remain unresolved. |
+
+## Per-use-case diagrams
+
+Each ID below links to its full written row in the [use case table](#use-case-table) and three conceptual Mermaid diagrams. Labels do not assert implemented screens, persistence states, endpoints, or HTTP methods.
+
+Validation: all **57 Mermaid diagrams parsed and rendered successfully** with the local Mermaid renderer. Checks found no nonempty text outside SVG bounds. Visual spot-checks covered category deletion, multicurrency split approval, Savings delta/reset states, Debt metric corrections, and currency interactions. All 19 IDs, 133 Markdown/CSV field values, diagram types/fences, node/state limits, and relative links passed checks. These checks verify documentation and diagram rendering, not an application or running database. Open policy assumptions remain explicit.
+
+### UC-001
+
+**Create a user account.** Specification: UC-001 row in the [use case table](#use-case-table).
+
+[Flow](UC-001_create-a-user-account/flow.md) · [States](UC-001_create-a-user-account/states.md) · [Sequence](UC-001_create-a-user-account/sequence.md)
+
+### UC-002
+
+**Create and access budget profiles.** Specification: UC-002 row in the [use case table](#use-case-table).
+
+[Flow](UC-002_create-and-access-budget-profiles/flow.md) · [States](UC-002_create-and-access-budget-profiles/states.md) · [Sequence](UC-002_create-and-access-budget-profiles/sequence.md)
+
+### UC-003
+
+**Share a profile and change access.** Specification: UC-003 row in the [use case table](#use-case-table).
+
+[Flow](UC-003_share-a-profile-and-change-access/flow.md) · [States](UC-003_share-a-profile-and-change-access/states.md) · [Sequence](UC-003_share-a-profile-and-change-access/sequence.md)
+
+### UC-004
+
+**Maintain categories and subcategories.** Specification: UC-004 row in the [use case table](#use-case-table).
+
+[Flow](UC-004_maintain-categories-and-subcategories/flow.md) · [States](UC-004_maintain-categories-and-subcategories/states.md) · [Sequence](UC-004_maintain-categories-and-subcategories/sequence.md)
+
+### UC-005
+
+**Save credit card payment methods.** Specification: UC-005 row in the [use case table](#use-case-table).
+
+[Flow](UC-005_save-credit-card-payment-methods/flow.md) · [States](UC-005_save-credit-card-payment-methods/states.md) · [Sequence](UC-005_save-credit-card-payment-methods/sequence.md)
+
+### UC-006
+
+**Create the first budget period.** Specification: UC-006 row in the [use case table](#use-case-table).
+
+[Flow](UC-006_create-the-first-budget-period/flow.md) · [States](UC-006_create-the-first-budget-period/states.md) · [Sequence](UC-006_create-the-first-budget-period/sequence.md)
+
+### UC-007
+
+**Create a later budget period.** Specification: UC-007 row in the [use case table](#use-case-table).
+
+[Flow](UC-007_create-a-later-budget-period/flow.md) · [States](UC-007_create-a-later-budget-period/states.md) · [Sequence](UC-007_create-a-later-budget-period/sequence.md)
+
+### UC-008
+
+**Review and correct a budget period.** Specification: UC-008 row in the [use case table](#use-case-table).
+
+[Flow](UC-008_review-and-correct-a-budget-period/flow.md) · [States](UC-008_review-and-correct-a-budget-period/states.md) · [Sequence](UC-008_review-and-correct-a-budget-period/sequence.md)
+
+### UC-009
+
+**Create, edit, or delete an approved transaction.** Specification: UC-009 row in the [use case table](#use-case-table).
+
+[Flow](UC-009_create-edit-or-delete-an-approved-transaction/flow.md) · [States](UC-009_create-edit-or-delete-an-approved-transaction/states.md) · [Sequence](UC-009_create-edit-or-delete-an-approved-transaction/sequence.md)
+
+### UC-010
+
+**Upload a bank statement for review.** Specification: UC-010 row in the [use case table](#use-case-table).
+
+[Flow](UC-010_upload-a-bank-statement-for-review/flow.md) · [States](UC-010_upload-a-bank-statement-for-review/states.md) · [Sequence](UC-010_upload-a-bank-statement-for-review/sequence.md)
+
+### UC-011
+
+**Approve or split a pending transaction.** Specification: UC-011 row in the [use case table](#use-case-table).
+
+[Flow](UC-011_approve-or-split-a-pending-transaction/flow.md) · [States](UC-011_approve-or-split-a-pending-transaction/states.md) · [Sequence](UC-011_approve-or-split-a-pending-transaction/sequence.md)
+
+### UC-012
+
+**Manage transaction tags.** Specification: UC-012 row in the [use case table](#use-case-table).
+
+[Flow](UC-012_manage-transaction-tags/flow.md) · [States](UC-012_manage-transaction-tags/states.md) · [Sequence](UC-012_manage-transaction-tags/sequence.md)
+
+### UC-013
+
+**Link repayments to an IOU.** Specification: UC-013 row in the [use case table](#use-case-table).
+
+[Flow](UC-013_link-repayments-to-an-iou/flow.md) · [States](UC-013_link-repayments-to-an-iou/states.md) · [Sequence](UC-013_link-repayments-to-an-iou/sequence.md)
+
+### UC-014
+
+**Track and adjust savings.** Specification: UC-014 row in the [use case table](#use-case-table).
+
+[Flow](UC-014_track-and-adjust-savings/flow.md) · [States](UC-014_track-and-adjust-savings/states.md) · [Sequence](UC-014_track-and-adjust-savings/sequence.md)
+
+### UC-015
+
+**Track and adjust debt.** Specification: UC-015 row in the [use case table](#use-case-table).
+
+[Flow](UC-015_track-and-adjust-debt/flow.md) · [States](UC-015_track-and-adjust-debt/states.md) · [Sequence](UC-015_track-and-adjust-debt/sequence.md)
+
+### UC-016
+
+**Review savings, debt, and unpaid IOUs.** Specification: UC-016 row in the [use case table](#use-case-table).
+
+[Flow](UC-016_review-savings-debt-and-unpaid-ious/flow.md) · [States](UC-016_review-savings-debt-and-unpaid-ious/states.md) · [Sequence](UC-016_review-savings-debt-and-unpaid-ious/sequence.md)
+
+### UC-017
+
+**Report income for a date range.** Specification: UC-017 row in the [use case table](#use-case-table).
+
+[Flow](UC-017_report-income-for-a-date-range/flow.md) · [States](UC-017_report-income-for-a-date-range/states.md) · [Sequence](UC-017_report-income-for-a-date-range/sequence.md)
+
+### UC-018
+
+**Report spending by date and category.** Specification: UC-018 row in the [use case table](#use-case-table).
+
+[Flow](UC-018_report-spending-by-date-and-category/flow.md) · [States](UC-018_report-spending-by-date-and-category/states.md) · [Sequence](UC-018_report-spending-by-date-and-category/sequence.md)
+
+### UC-019
+
+**Configure profile currencies.** Specification: UC-019 row in the [use case table](#use-case-table).
+
+[Flow](UC-019_configure-profile-currencies/flow.md) · [States](UC-019_configure-profile-currencies/states.md) · [Sequence](UC-019_configure-profile-currencies/sequence.md)
