@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PersonalFinance.Api/PersonalFinance.Api.csproj" />
+    <Project Path="src/PersonalFinance.Application/PersonalFinance.Application.csproj" />
+    <Project Path="src/PersonalFinance.Client/PersonalFinance.Client.csproj" />
+    <Project Path="src/PersonalFinance.Contracts/PersonalFinance.Contracts.csproj" />
+    <Project Path="src/PersonalFinance.Domain/PersonalFinance.Domain.csproj" />
+    <Project Path="src/PersonalFinance.Infrastructure/PersonalFinance.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PersonalFinance.Application.Tests/PersonalFinance.Application.Tests.csproj" />
+    <Project Path="tests/PersonalFinance.Client.Tests/PersonalFinance.Client.Tests.csproj" />
+    <Project Path="tests/PersonalFinance.Domain.Tests/PersonalFinance.Domain.Tests.csproj" />
+    <Project Path="tests/PersonalFinance.EndToEndTests/PersonalFinance.EndToEndTests.csproj" />
+    <Project Path="tests/PersonalFinance.IntegrationTests/PersonalFinance.IntegrationTests.csproj" />
+  </Folder>
+</Solution>
