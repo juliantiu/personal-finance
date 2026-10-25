@@ -3,6 +3,11 @@
   <ItemGroup>
     <ProjectReference Include="..\PersonalFinance.Application\PersonalFinance.Application.csproj" />
     <ProjectReference Include="..\PersonalFinance.Domain\PersonalFinance.Domain.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.3" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <PropertyGroup>

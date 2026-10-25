@@ -3,6 +3,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\PersonalFinance.Api\PersonalFinance.Api.csproj" />
     <ProjectReference Include="..\..\src\PersonalFinance.Infrastructure\PersonalFinance.Infrastructure.csproj" />
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -11,6 +13,7 @@
     <Nullable>enable</Nullable>
     <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
 </Project>
