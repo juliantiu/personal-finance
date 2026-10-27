@@ -20,6 +20,7 @@ public static class DependencyInjection
         if (string.IsNullOrWhiteSpace(connectionString))
             throw new InvalidOperationException("The Identity database connection string is required.");
 
+        services.AddDataProtection();
         services.AddDbContext<AccountIdentityDbContext>(options => options.UseSqlServer(connectionString));
         services.AddIdentityCore<AccountIdentityUser>(options =>
             {
