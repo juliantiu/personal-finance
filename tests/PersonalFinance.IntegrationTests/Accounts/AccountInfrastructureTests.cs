@@ -18,10 +18,10 @@ public sealed class AccountInfrastructureTests
     [InlineData(false, true, false)]
     [InlineData(true, false, false)]
     [InlineData(true, true, true)]
-    public void Account_routes_require_database_and_development_email_sink(
-        bool databaseConfigured, bool developmentSinkEnabled, bool expected)
+    public void Account_routes_require_database_and_configured_email_sender(
+        bool databaseConfigured, bool emailSenderConfigured, bool expected)
     {
-        Assert.Equal(expected, AccountEndpointAvailability.IsEnabled(databaseConfigured, developmentSinkEnabled));
+        Assert.Equal(expected, AccountEndpointAvailability.IsEnabled(databaseConfigured, emailSenderConfigured));
     }
 
     [Fact]
@@ -63,25 +63,6 @@ public sealed class AccountInfrastructureTests
         Assert.Equal("EmailIndex", index.GetDatabaseName());
     }
 
-    [Fact]
-    public async Task Development_confirmation_sink_keeps_the_token_in_the_client_fragment()
-    {
-        var inbox = new DevelopmentEmailInbox();
-        var sender = new DevelopmentConfirmationEmailSender(
-            Options.Create(new DevelopmentEmailOptions { ClientBaseUrl = "http://localhost:5203/" }), inbox);
-        var confirmation = new PersonalFinance.Application.Accounts.EmailConfirmation(
-            Guid.NewGuid(), "person@example.test", "token+with&reserved=chars");
-
-        await sender.SendAsync(confirmation, TestContext.Current.CancellationToken);
-
-        var message = Assert.Single(inbox.ReadAll());
-        Assert.Equal(confirmation.Email, message.Recipient);
-        Assert.Equal("confirm-email", message.ConfirmationLink.AbsolutePath.TrimStart('/'));
-        Assert.Empty(message.ConfirmationLink.Query);
-        Assert.Contains(Uri.EscapeDataString(confirmation.Token), message.ConfirmationLink.Fragment);
-        Assert.Contains(confirmation.AccountId.ToString(), message.ConfirmationLink.Fragment);
-    }
-
     private static ServiceProvider CreateInfrastructureProvider()
     {
         var configuration = new ConfigurationBuilder()
@@ -92,7 +73,7 @@ public sealed class AccountInfrastructureTests
             .Build();
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddInfrastructure(configuration, developmentEmailSinkEnabled: true);
+        services.AddInfrastructure(configuration, isDevelopment: true);
         return services.BuildServiceProvider(validateScopes: true);
     }
 }

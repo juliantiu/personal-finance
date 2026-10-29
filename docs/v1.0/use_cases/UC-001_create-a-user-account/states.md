@@ -13,7 +13,7 @@ stateDiagram-v2
     Creating --> Unverified: Account persisted
     Creating --> CreationFailed: Creation fails
     CreationFailed --> RegistrationEntry: Correct or retry
-    Unverified --> AwaitingConfirmation: Development email delivered
+    Unverified --> AwaitingConfirmation: Email accepted by the environment provider
     Unverified --> DeliveryFailed: Email delivery fails
     AwaitingConfirmation --> Verified: Valid link within 24 hours
     AwaitingConfirmation --> ConfirmationRejected: Invalid or expired link

@@ -19,31 +19,42 @@
         @if (_accepted)
         {
             <MudAlert Severity="Severity.Success" Class="mb-4">
-                Request accepted. If an account can be created, a confirmation email will be sent.
+                Request accepted. If a confirmation link arrives, open it to confirm the email address.
             </MudAlert>
+            @if (!string.IsNullOrWhiteSpace(_resendMessage))
+            {
+                <MudAlert Severity="@(_resendFailed ? Severity.Error : Severity.Success)" Class="mb-4">@_resendMessage</MudAlert>
+            }
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true"
+                       Disabled="_isResending" OnClick="ResendAsync">
+                @(_isResending ? "Sending…" : "Send confirmation email again")
+            </MudButton>
         }
 
-        <MudForm @ref="_form">
-            <MudTextField T="string" Label="Email address" @bind-Value="_email"
-                          @bind-Value:after="() => ClearFieldFeedback(nameof(RegisterAccountRequest.Email))"
-                          InputType="InputType.Email" Required="true"
-                          RequiredError="Enter your email address."
-                          Validation="@((Func<string?, string?>)ValidateEmail)" Disabled="_isSubmitting" />
-            <MudTextField T="string" Label="Password" @bind-Value="_password"
-                          @bind-Value:after="() => ClearFieldFeedback(nameof(RegisterAccountRequest.Password))"
-                          InputType="InputType.Password" Required="true"
-                          RequiredError="Enter a password."
-                          Validation="@((Func<string?, string?>)ValidatePassword)" Disabled="_isSubmitting" />
-            <MudTextField T="string" Label="Confirm password" @bind-Value="_confirmPassword"
-                          @bind-Value:after="() => ClearFieldFeedback(nameof(RegisterAccountRequest.ConfirmPassword))"
-                          InputType="InputType.Password" Required="true"
-                          RequiredError="Confirm your password."
-                          Validation="@((Func<string?, string?>)ValidateConfirmation)" Disabled="_isSubmitting" />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
-                       Class="mt-6" Disabled="_isSubmitting" OnClick="SubmitAsync">
-                @(_isSubmitting ? "Submitting…" : "Create account")
-            </MudButton>
-        </MudForm>
+        @if (!_accepted)
+        {
+            <MudForm @ref="_form">
+                <MudTextField T="string" Label="Email address" @bind-Value="_email"
+                              @bind-Value:after="() => ClearFieldFeedback(nameof(RegisterAccountRequest.Email))"
+                              InputType="InputType.Email" Required="true"
+                              RequiredError="Enter your email address."
+                              Validation="@((Func<string?, string?>)ValidateEmail)" Disabled="_isSubmitting" />
+                <MudTextField T="string" Label="Password" @bind-Value="_password"
+                              @bind-Value:after="() => ClearFieldFeedback(nameof(RegisterAccountRequest.Password))"
+                              InputType="InputType.Password" Required="true"
+                              RequiredError="Enter a password."
+                              Validation="@((Func<string?, string?>)ValidatePassword)" Disabled="_isSubmitting" />
+                <MudTextField T="string" Label="Confirm password" @bind-Value="_confirmPassword"
+                              @bind-Value:after="() => ClearFieldFeedback(nameof(RegisterAccountRequest.ConfirmPassword))"
+                              InputType="InputType.Password" Required="true"
+                              RequiredError="Confirm your password."
+                              Validation="@((Func<string?, string?>)ValidateConfirmation)" Disabled="_isSubmitting" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                           Class="mt-6" Disabled="_isSubmitting" OnClick="SubmitAsync">
+                    @(_isSubmitting ? "Submitting…" : "Create account")
+                </MudButton>
+            </MudForm>
+        }
     </MudPaper>
 </MudContainer>
 
@@ -55,6 +66,9 @@
     private string? _serverError;
     private bool _accepted;
     private bool _isSubmitting;
+    private bool _isResending;
+    private string? _resendMessage;
+    private bool _resendFailed;
 
     private string? ValidateEmail(string? value)
     {
@@ -90,6 +104,7 @@
         _serverErrors.Remove(field);
         _serverError = null;
         _accepted = false;
+        _resendMessage = null;
     }
 
     private readonly Dictionary<string, string[]> _serverErrors = new(StringComparer.OrdinalIgnoreCase);
@@ -129,6 +144,43 @@
         finally
         {
             _isSubmitting = false;
+        }
+    }
+
+    private async Task ResendAsync()
+    {
+        if (_isResending) return;
+        _isResending = true;
+        _resendMessage = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync("api/accounts/resend-confirmation",
+                new ResendConfirmationRequest(_email));
+            if (response.IsSuccessStatusCode)
+            {
+                _resendFailed = false;
+                _resendMessage = "Request accepted.";
+                return;
+            }
+
+            _resendFailed = true;
+            _resendMessage = (int)response.StatusCode >= 500
+                ? "The service is temporarily unavailable. Try again shortly."
+                : "We couldn’t submit your request. Check the email address and try again.";
+        }
+        catch (HttpRequestException)
+        {
+            _resendFailed = true;
+            _resendMessage = "We couldn’t reach the service. Check your connection and try again.";
+        }
+        catch (TaskCanceledException)
+        {
+            _resendFailed = true;
+            _resendMessage = "The request timed out. Check your connection and try again.";
+        }
+        finally
+        {
+            _isResending = false;
         }
     }
 

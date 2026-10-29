@@ -11,7 +11,7 @@ sequenceDiagram
     participant API as Account controller
     participant App as Application commands and validation
     participant Identity as Infrastructure Identity adapter
-    participant Email as Development email sink
+    participant Email as Environment email provider (smtp4dev / Azure Email)
     User->>UI: Enter email, password, and confirmation
     UI->>API: Submit registration
     API->>App: Dispatch registration command

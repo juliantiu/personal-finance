@@ -103,12 +103,29 @@ public sealed class RegisterPageTests
         Assert.Equal(2, handler.Requests.Count);
     }
 
-    private static Bunit.BunitContext CreateContext(StubHandler handler)
+    [Fact]
+    public void Accepted_registration_can_request_another_confirmation_email()
+    {
+        var handler = new ResendHandler();
+        using var context = CreateContext(handler);
+        var page = context.Render<Register>();
+        FillValidForm(page);
+
+        page.Find("button.mud-button-root").Click();
+        page.WaitForAssertion(() => Assert.Contains("Send confirmation email again", page.Markup));
+        page.Find("button.mud-button-root").Click();
+
+        page.WaitForAssertion(() => Assert.Contains("Request accepted.", page.Markup));
+        var request = Assert.Single(handler.Requests, request => request.Path == "api/accounts/resend-confirmation");
+        Assert.Contains("person@example.test", request.Body);
+    }
+
+    private static Bunit.BunitContext CreateContext(HttpMessageHandler handler)
     {
         var context = new Bunit.BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddMudServices();
-        context.Services.AddSingleton(handler);
+        context.Services.AddSingleton(handler.GetType(), handler);
         context.Services.AddSingleton(new HttpClient(handler) { BaseAddress = new Uri("https://localhost/") });
         return context;
     }
@@ -129,6 +146,18 @@ public sealed class RegisterPageTests
             var body = await request.Content!.ReadFromJsonAsync<RegisterAccountRequest>(cancellationToken);
             Requests.Add((request.RequestUri!.PathAndQuery.TrimStart('/'), body!));
             return responseFactory(request);
+        }
+    }
+
+    private sealed class ResendHandler : HttpMessageHandler
+    {
+        public List<(string Path, string Body)> Requests { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests.Add((request.RequestUri!.PathAndQuery.TrimStart('/'),
+                await request.Content!.ReadAsStringAsync(cancellationToken)));
+            return new HttpResponseMessage(HttpStatusCode.Accepted);
         }
     }
 }

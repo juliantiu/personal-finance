@@ -11,6 +11,9 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.4" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.3" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageReference Include="Azure.Communication.Email" Version="1.1.0" />
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
+    <PackageReference Include="MailKit" Version="4.18.2" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 

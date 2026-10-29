@@ -1,0 +1,153 @@
+@page "/confirm-email"
+@using System.Net.Http.Json
+@using PersonalFinance.Contracts.Accounts
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>Confirm email</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="register-page">
+    <MudPaper Elevation="2" Class="register-card pa-6 pa-sm-8">
+        <MudText Typo="Typo.h4" GutterBottom="true">Confirm your email</MudText>
+
+        @if (_isConfirming)
+        {
+            <MudProgressLinear Indeterminate="true" Class="mb-4" />
+            <MudText>Checking your confirmation link…</MudText>
+        }
+        else if (!string.IsNullOrWhiteSpace(_confirmationMessage))
+        {
+            <MudAlert Severity="@(_confirmationSucceeded ? Severity.Success : Severity.Error)" Class="mb-4">
+                @_confirmationMessage
+            </MudAlert>
+        }
+
+        @if (!_confirmationSucceeded)
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">You can request another confirmation email below.</MudText>
+            @if (!string.IsNullOrWhiteSpace(_resendMessage))
+            {
+                <MudAlert Severity="@(_resendFailed ? Severity.Error : Severity.Success)" Class="mb-4">@_resendMessage</MudAlert>
+            }
+            <MudForm>
+                <MudTextField T="string" Label="Email address" @bind-Value="_email"
+                              InputType="InputType.Email" Required="true"
+                              RequiredError="Enter your email address." Disabled="_isResending" />
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" FullWidth="true"
+                           Class="mt-4" Disabled="_isResending" OnClick="ResendAsync">
+                    @(_isResending ? "Sending…" : "Send confirmation email again")
+                </MudButton>
+            </MudForm>
+        }
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private string _email = string.Empty;
+    private string? _confirmationMessage;
+    private string? _resendMessage;
+    private bool _confirmationSucceeded;
+    private bool _resendFailed;
+    private bool _isConfirming;
+    private bool _isResending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var currentUri = new Uri(Navigation.Uri);
+        var values = ParseFragment(currentUri.Fragment);
+
+        if (!values.TryGetValue("accountId", out var accountIdText) ||
+            !Guid.TryParse(accountIdText, out var accountId) ||
+            !values.TryGetValue("token", out var token) || string.IsNullOrWhiteSpace(token))
+        {
+            ClearConfirmationFragment(currentUri);
+            _confirmationMessage = "This confirmation link is invalid or expired.";
+            return;
+        }
+
+        _isConfirming = true;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync("api/accounts/confirm-email",
+                new ConfirmEmailRequest(accountId, token));
+            _confirmationSucceeded = response.IsSuccessStatusCode;
+            _confirmationMessage = _confirmationSucceeded
+                ? "Email confirmed. You can now close this page. No one has been signed in."
+                : "This confirmation link is invalid or expired.";
+            ClearConfirmationFragment(currentUri);
+        }
+        catch (HttpRequestException)
+        {
+            _confirmationMessage = "We couldn’t reach the service. Check your connection and try again.";
+        }
+        catch (TaskCanceledException)
+        {
+            _confirmationMessage = "The request timed out. Check your connection and try again.";
+        }
+        finally
+        {
+            _isConfirming = false;
+        }
+    }
+
+    private void ClearConfirmationFragment(Uri currentUri) =>
+        Navigation.NavigateTo(currentUri.GetLeftPart(UriPartial.Path), replace: true);
+
+    private async Task ResendAsync()
+    {
+        if (_isResending || string.IsNullOrWhiteSpace(_email) ||
+            !System.Net.Mail.MailAddress.TryCreate(_email, out var address) || address.Address != _email)
+        {
+            _resendFailed = true;
+            _resendMessage = "Enter a valid email address.";
+            return;
+        }
+
+        _isResending = true;
+        _resendMessage = null;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync("api/accounts/resend-confirmation",
+                new ResendConfirmationRequest(_email));
+            if (response.IsSuccessStatusCode)
+            {
+                _resendFailed = false;
+                _resendMessage = "Request accepted.";
+                return;
+            }
+
+            _resendFailed = true;
+            _resendMessage = (int)response.StatusCode >= 500
+                ? "The service is temporarily unavailable. Try again shortly."
+                : "We couldn’t submit your request. Check the email address and try again.";
+        }
+        catch (HttpRequestException)
+        {
+            _resendFailed = true;
+            _resendMessage = "We couldn’t reach the service. Check your connection and try again.";
+        }
+        catch (TaskCanceledException)
+        {
+            _resendFailed = true;
+            _resendMessage = "The request timed out. Check your connection and try again.";
+        }
+        finally
+        {
+            _isResending = false;
+        }
+    }
+
+    private static Dictionary<string, string> ParseFragment(string fragment)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var pair in fragment.TrimStart('#').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = pair.IndexOf('=');
+            if (separator < 0) continue;
+            var key = Uri.UnescapeDataString(pair[..separator]);
+            var value = Uri.UnescapeDataString(pair[(separator + 1)..]);
+            result[key] = value;
+        }
+        return result;
+    }
+}
