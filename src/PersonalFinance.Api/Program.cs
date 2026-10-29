@@ -8,6 +8,9 @@ using PersonalFinance.Infrastructure.Email;
 using System.Text.Encodings.Web;
 
 var builder = WebApplication.CreateBuilder(args);
+var clientOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+builder.Services.AddCors(options => options.AddPolicy("Client", policy =>
+    policy.WithOrigins(clientOrigins).AllowAnyHeader().AllowAnyMethod()));
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
@@ -30,6 +33,7 @@ if (accountEndpointsEnabled)
 var app = builder.Build();
 
 app.UseExceptionHandler();
+app.UseCors("Client");
 
 // This phase exposes the account workflow only where both persistence configuration and the
 // local email sink are available. Production email delivery is wired in a later slice.

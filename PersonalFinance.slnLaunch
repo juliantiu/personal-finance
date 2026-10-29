@@ -1,0 +1,17 @@
+[
+  {
+    "Name": "Api + Client",
+    "Projects": [
+      {
+        "Path": "src\\PersonalFinance.Api\\PersonalFinance.Api.csproj",
+        "Action": "Start",
+        "DebugTarget": "https"
+      },
+      {
+        "Path": "src\\PersonalFinance.Client\\PersonalFinance.Client.csproj",
+        "Action": "Start",
+        "DebugTarget": "https"
+      }
+    ]
+  }
+]

@@ -87,3 +87,11 @@ code {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+
+.register-page {
+    padding-top: clamp(2rem, 8vh, 5rem);
+}
+
+.register-card {
+    border-radius: 1rem;
+}

@@ -4,6 +4,7 @@ using PersonalFinance.Application.Accounts;
 using PersonalFinance.Application.Accounts.ConfirmEmail;
 using PersonalFinance.Application.Accounts.RegisterAccount;
 using PersonalFinance.Application.Accounts.ResendConfirmation;
+using PersonalFinance.Contracts.Accounts;
 
 namespace PersonalFinance.Api.Accounts;
 

@@ -1,0 +1,168 @@
+@page "/register"
+@using System.Net.Http.Json
+@using PersonalFinance.Contracts.Accounts
+@inject HttpClient Http
+
+<PageTitle>Create account</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="register-page">
+    <MudPaper Elevation="2" Class="register-card pa-6 pa-sm-8">
+        <MudText Typo="Typo.h4" GutterBottom="true">Create your account</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-6">
+            Register with your email address. We’ll send a link to verify it.
+        </MudText>
+
+        @if (!string.IsNullOrWhiteSpace(_serverError))
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4">@_serverError</MudAlert>
+        }
+        @if (_accepted)
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-4">
+                Request accepted. If an account can be created, a confirmation email will be sent.
+            </MudAlert>
+        }
+
+        <MudForm @ref="_form">
+            <MudTextField T="string" Label="Email address" @bind-Value="_email"
+                          @bind-Value:after="() => ClearFieldFeedback(nameof(RegisterAccountRequest.Email))"
+                          InputType="InputType.Email" Required="true"
+                          RequiredError="Enter your email address."
+                          Validation="@((Func<string?, string?>)ValidateEmail)" Disabled="_isSubmitting" />
+            <MudTextField T="string" Label="Password" @bind-Value="_password"
+                          @bind-Value:after="() => ClearFieldFeedback(nameof(RegisterAccountRequest.Password))"
+                          InputType="InputType.Password" Required="true"
+                          RequiredError="Enter a password."
+                          Validation="@((Func<string?, string?>)ValidatePassword)" Disabled="_isSubmitting" />
+            <MudTextField T="string" Label="Confirm password" @bind-Value="_confirmPassword"
+                          @bind-Value:after="() => ClearFieldFeedback(nameof(RegisterAccountRequest.ConfirmPassword))"
+                          InputType="InputType.Password" Required="true"
+                          RequiredError="Confirm your password."
+                          Validation="@((Func<string?, string?>)ValidateConfirmation)" Disabled="_isSubmitting" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                       Class="mt-6" Disabled="_isSubmitting" OnClick="SubmitAsync">
+                @(_isSubmitting ? "Submitting…" : "Create account")
+            </MudButton>
+        </MudForm>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private MudForm? _form;
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private string _confirmPassword = string.Empty;
+    private string? _serverError;
+    private bool _accepted;
+    private bool _isSubmitting;
+
+    private string? ValidateEmail(string? value)
+    {
+        var serverMessage = GetServerMessage(nameof(RegisterAccountRequest.Email));
+        if (serverMessage is not null) return serverMessage;
+        if (string.IsNullOrWhiteSpace(value)) return "Enter your email address.";
+        return System.Net.Mail.MailAddress.TryCreate(value, out var address) && address.Address == value
+            ? null
+            : "Enter a valid email address.";
+    }
+
+    private string? ValidatePassword(string? value)
+    {
+        var serverMessage = GetServerMessage(nameof(RegisterAccountRequest.Password));
+        if (serverMessage is not null) return serverMessage;
+        if (string.IsNullOrEmpty(value)) return "Enter a password.";
+        return value.Length < 12 ? "Use at least 12 characters." : null;
+    }
+
+    private string? ValidateConfirmation(string? value)
+    {
+        var serverMessage = GetServerMessage(nameof(RegisterAccountRequest.ConfirmPassword));
+        if (serverMessage is not null) return serverMessage;
+        if (string.IsNullOrEmpty(value)) return "Confirm your password.";
+        return value == _password ? null : "Password confirmation must match.";
+    }
+
+    private string? GetServerMessage(string field) =>
+        _serverErrors.TryGetValue(field, out var messages) ? messages.FirstOrDefault() : null;
+
+    private void ClearFieldFeedback(string field)
+    {
+        _serverErrors.Remove(field);
+        _serverError = null;
+        _accepted = false;
+    }
+
+    private readonly Dictionary<string, string[]> _serverErrors = new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null || _isSubmitting) return;
+        _serverError = null;
+        _accepted = false;
+        _serverErrors.Clear();
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+
+        _isSubmitting = true;
+        try
+        {
+            using var response = await Http.PostAsJsonAsync("api/accounts/register",
+                new RegisterAccountRequest(_email, _password, _confirmPassword));
+            if (response.IsSuccessStatusCode)
+            {
+                _accepted = true;
+                _password = string.Empty;
+                _confirmPassword = string.Empty;
+                return;
+            }
+
+            await DisplayServerErrorAsync(response);
+        }
+        catch (HttpRequestException)
+        {
+            _serverError = "We couldn’t reach the service. Check your connection and try again.";
+        }
+        catch (TaskCanceledException)
+        {
+            _serverError = "The request timed out. Check your connection and try again.";
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private async Task DisplayServerErrorAsync(HttpResponseMessage response)
+    {
+        if ((int)response.StatusCode >= 500)
+        {
+            _serverError = "The service is temporarily unavailable. Try again shortly.";
+            return;
+        }
+
+        if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+        {
+            ValidationProblemResponse? problem = null;
+            try
+            {
+                problem = await response.Content.ReadFromJsonAsync<ValidationProblemResponse>();
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // Fall through to the safe generic error for an unexpected response body.
+            }
+            if (problem?.Errors is { Count: > 0 })
+            {
+                foreach (var pair in problem.Errors)
+                    _serverErrors[pair.Key] = pair.Value;
+                await _form!.ValidateAsync();
+                return;
+            }
+        }
+
+        _serverError = "We couldn’t submit your request. Check the details and try again.";
+    }
+
+    private sealed record ValidationProblemResponse(Dictionary<string, string[]> Errors);
+}
+
