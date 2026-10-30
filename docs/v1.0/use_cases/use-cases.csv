@@ -178,14 +178,15 @@ UC-019,Configure profile currencies,Authorized writer; participant viewing setti
 - 3c: Further catalog support and historical currency-change/revaluation policy remain unspecified; no relabeling, conversion, or history deletion is invented.
 - 4a: Saving fails; the requested change is not confirmed.
 - 5a: A foreign import lacks a main amount; it remains pending until the user supplies one manually. Same-main imports need no alternative amount; complete split distributions still apply to every supplied currency.","Saved configuration supplies one calculation unit and optional descriptive alternatives. Main amounts are required for approved activity, and no system conversion or double counting is introduced. Historical main-currency changes remain unresolved."
-UC-020,Sign in and sign out,Account holder; prospective user; Blazor client; authentication server,The account exists. Sign-in requires a verified email and a configured OpenIddict client. Sign-out requires an active browser session.,"1. Open a protected area or choose sign-in.
-2. Start authorization-code sign-in with PKCE and retain the safe initiating page.
-3. Enter the verified account email and password at the authorization server.
-4. Complete the callback, keep the 15-minute access token in memory, and return to the initiating page.
-5. Use the access token for API requests; after expiry, authorize again without a persisted browser refresh token.
-6. Choose sign-out to revoke the current session's grant/token chain, clear client state and the authorization-server cookie, and show the signed-out state.","- Unknown email, incorrect password, unverified email, locked account, or throttled attempt produces the same generic sign-in failure message.
+UC-020,Sign in and sign out,Account holder; prospective user; Blazor client; authentication server,The account exists. Sign-in requires a verified email and a configured OpenIddict client. Sign-out requires an active browser session.,"1. Open a protected page or choose sign-in.
+2. Redirect an unauthenticated visitor to `/login`, preserving a safe local return path.
+3. The API-hosted BFF starts authorization-code sign-in with PKCE and sends the user to the authorization server to enter verified account credentials.
+4. Return to the requested page after sign-in; if `/login` was the first page and had no return path, redirect to `/budget-profiles` (the index page is planned in a separate use case).
+5. Keep the 15-minute JWT and refresh token server-side in protected database-backed storage. Give the browser only an opaque, non-persistent HttpOnly/Secure session cookie; the BFF uses tokens for resource API calls.
+6. Choose sign-out to revoke the current grant/token chain, delete the server-side session, clear the session cookie, and show the signed-out state.","- Unknown email, incorrect password, unverified email, locked account, or throttled attempt produces the same generic sign-in failure message.
 - Bounded login lockout and independent rate limits throttle repeated attempts without revealing account existence; exact finite thresholds are set during implementation.
 - Invalid callback/state or an unregistered return URL is rejected; do not establish a session or redirect to an arbitrary destination.
-- Expired or revoked access is rejected by the API; the user must authorize again.
+- Expired or revoked access is rejected by the BFF/resource API. Refresh token rotation, expiry, and replay/revocation checks use persisted server-side records.
 - Sign-out ends only the current session; other devices remain signed in. A failed sign-out is not presented as complete.
-- Password reset, MFA, account recovery, profile editing, and account deletion are outside this use case.",A valid verified account can access the application using the selected public-client OIDC flow. The current browser session ends on sign-out and its revoked tokens no longer authorize requests. Other sessions remain active unless separately revoked by account deletion.
+- Cookie-authenticated mutations require antiforgery protection; credentialed CORS is restricted to the configured client origin.
+- Password reset, MFA, account recovery, profile editing, and account deletion are outside this use case.",A valid verified account can access the application through the BFF session. The current browser session ends on sign-out and its revoked tokens no longer authorize or refresh requests. Other sessions remain active unless separately revoked by account deletion.
