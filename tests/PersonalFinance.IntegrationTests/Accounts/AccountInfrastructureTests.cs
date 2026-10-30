@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.Identity;
+using PersonalFinance.Application.Accounts;
 using PersonalFinance.Api.Accounts;
 using PersonalFinance.Infrastructure;
 using PersonalFinance.Infrastructure.Accounts;
@@ -61,6 +63,43 @@ public sealed class AccountInfrastructureTests
 
         Assert.True(index.IsUnique);
         Assert.Equal("EmailIndex", index.GetDatabaseName());
+    }
+
+    [Fact]
+    public async Task LocalDb_account_persists_hashed_password_and_confirmation_state()
+    {
+        var database = $"PersonalFinanceIntegration_{Guid.NewGuid():N}";
+        var connection = $"Server=(localdb)\\MSSQLLocalDB;Database={database};Trusted_Connection=True;TrustServerCertificate=True";
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:Identity"] = connection
+        }).Build();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddInfrastructure(configuration, isDevelopment: true);
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        try
+        {
+            using (var scope = provider.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AccountIdentityDbContext>();
+                await db.Database.MigrateAsync();
+                var identity = scope.ServiceProvider.GetRequiredService<IAccountIdentity>();
+                var confirmation = await identity.CreateAccountAsync("integration@example.test", "abcdefghijkl", CancellationToken.None);
+                Assert.NotNull(confirmation);
+                var user = await db.Users.SingleAsync();
+                Assert.Equal(confirmation.AccountId, user.Id);
+                Assert.False(user.EmailConfirmed);
+                Assert.NotEqual("abcdefghijkl", user.PasswordHash);
+                Assert.True(await identity.ConfirmEmailAsync(confirmation.AccountId, confirmation.Token, CancellationToken.None));
+                Assert.True((await db.Users.SingleAsync()).EmailConfirmed);
+            }
+        }
+        finally
+        {
+            using var scope = provider.CreateScope();
+            await scope.ServiceProvider.GetRequiredService<AccountIdentityDbContext>().Database.EnsureDeletedAsync();
+        }
     }
 
     private static ServiceProvider CreateInfrastructureProvider()
