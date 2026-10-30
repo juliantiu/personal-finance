@@ -4,6 +4,8 @@
     <ProjectReference Include="..\..\src\PersonalFinance.Api\PersonalFinance.Api.csproj" />
     <ProjectReference Include="..\..\src\PersonalFinance.Infrastructure\PersonalFinance.Infrastructure.csproj" />
     <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.12" />
+    <Compile Include="..\Shared\AccountTestHost.cs" Link="Support\AccountTestHost.cs" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 

@@ -10,6 +10,30 @@ namespace PersonalFinance.Client.Tests.Accounts;
 
 public sealed class ConfirmationPageTests
 {
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest, HttpStatusCode.OK, "Email confirmed")]
+    [InlineData(HttpStatusCode.OK, HttpStatusCode.BadRequest, "invalid or expired")]
+    public async Task A_new_link_on_the_open_page_is_checked_and_replaces_the_previous_result(
+        HttpStatusCode firstStatus, HttpStatusCode nextStatus, string expected)
+    {
+        var handler = new StubHandler(firstStatus);
+        using var context = CreateContext(handler);
+        var navigation = context.Services.GetRequiredService<NavigationManager>();
+        navigation.NavigateTo("http://localhost/confirm-email#accountId=5d0f8819-f74b-4dc5-91ad-229d169102fa&token=first");
+        var page = context.Render<ConfirmEmail>();
+        page.WaitForAssertion(() => Assert.Single(handler.Requests));
+        handler.ConfirmationStatus = nextStatus;
+
+        await page.InvokeAsync(() => navigation.NavigateTo(
+            "http://localhost/confirm-email#accountId=5d0f8819-f74b-4dc5-91ad-229d169102fa&token=second"));
+
+        page.WaitForAssertion(() => Assert.Equal(2, handler.Requests.Count));
+        Assert.Contains(expected, page.Markup, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("second", handler.Requests[1].Body);
+        Assert.DoesNotContain("token", navigation.Uri);
+        if (nextStatus == HttpStatusCode.BadRequest) Assert.DoesNotContain("Email confirmed", page.Markup);
+    }
+
     [Fact]
     public void Valid_link_posts_confirmation_and_shows_success_without_signing_in()
     {
@@ -58,6 +82,7 @@ public sealed class ConfirmationPageTests
 
     private sealed class StubHandler(HttpStatusCode confirmationStatus) : HttpMessageHandler
     {
+        public HttpStatusCode ConfirmationStatus { get; set; } = confirmationStatus;
         public List<(string Path, string Body)> Requests { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -65,7 +90,7 @@ public sealed class ConfirmationPageTests
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
             Requests.Add((request.RequestUri!.PathAndQuery.TrimStart('/'), body));
             return new HttpResponseMessage(request.RequestUri.AbsolutePath.EndsWith("confirm-email", StringComparison.Ordinal)
-                ? confirmationStatus
+                ? ConfirmationStatus
                 : HttpStatusCode.Accepted);
         }
     }

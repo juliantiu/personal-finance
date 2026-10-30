@@ -8,7 +8,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <IsTestProject>true</IsTestProject>
+    <!-- No domain tests exist yet. Enable discovery when a runner and tests are added. -->
+    <IsTestProject>false</IsTestProject>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
