@@ -173,6 +173,7 @@ public sealed class AccountWorkflowTests
 
     private sealed class FakeIdentity : IAccountIdentity
     {
+        public Task<bool> SignInAsync(string email, string password, CancellationToken cancellationToken) => Task.FromResult(false);
         public EmailConfirmation? Confirmation { get; set; } = new(Guid.NewGuid(), "person@example.test", "opaque-test-token");
         public bool ValidToken { get; set; }
         public List<(string Email, string Password)> Creations { get; } = [];

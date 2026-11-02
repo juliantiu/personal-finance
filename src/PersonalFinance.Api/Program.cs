@@ -1,4 +1,6 @@
 using Mediator;
+using Microsoft.AspNetCore.Mvc;
+using System.Threading.RateLimiting;
 using PersonalFinance.Api.Accounts;
 using PersonalFinance.Application;
 using PersonalFinance.Application.Accounts.RegisterAccount;
@@ -13,6 +15,24 @@ builder.Services.AddCors(options => options.AddPolicy("Client", policy =>
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
+builder.Services.AddRateLimiter(options => options.AddPolicy("SignIn", context =>
+    RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(15),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        })));
+builder.Services.Configure<Microsoft.AspNetCore.RateLimiting.RateLimiterOptions>(options =>
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new ProblemDetails { Title = "Sign-in failed. Check your details and try again.", Status = StatusCodes.Status401Unauthorized },
+            cancellationToken);
+    });
 builder.Services.AddApplication();
 
 var hasIdentityDatabase = !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Identity"));
@@ -34,9 +54,11 @@ if (accountEndpointsEnabled)
                     .SetTokenEndpointUris("/connect/token")
                     .SetEndSessionEndpointUris("/connect/logout");
                 options.AllowAuthorizationCodeFlow()
+                    .AllowRefreshTokenFlow()
                     .RequireProofKeyForCodeExchange();
                 options.RegisterScopes("email", "profile", "offline_access", "personal_finance_api");
                 options.SetAccessTokenLifetime(TimeSpan.FromMinutes(15));
+                options.SetRefreshTokenLifetime(TimeSpan.FromDays(7));
                 options.UseDataProtection(protection => protection.PreferDefaultAccessTokenFormat());
                 var issuer = builder.Configuration["Authentication:OpenIddict:Issuer"];
                 if (Uri.TryCreate(issuer, UriKind.Absolute, out var issuerUri))
@@ -68,6 +90,7 @@ var app = builder.Build();
 
 app.UseExceptionHandler();
 app.UseCors("Client");
+app.UseRateLimiter();
 if (accountEndpointsEnabled && openIddictEnabled)
 {
     app.UseAuthentication();

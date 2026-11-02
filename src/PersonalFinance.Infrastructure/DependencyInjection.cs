@@ -31,6 +31,9 @@ public static class DependencyInjection
             {
                 options.User.RequireUniqueEmail = true;
                 options.SignIn.RequireConfirmedEmail = true;
+                options.Lockout.AllowedForNewUsers = true;
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
                 options.Password.RequiredLength = 12;
                 options.Password.RequireDigit = false;
                 options.Password.RequireLowercase = false;
@@ -38,6 +41,7 @@ public static class DependencyInjection
                 options.Password.RequireNonAlphanumeric = false;
             })
             .AddEntityFrameworkStores<AccountIdentityDbContext>()
+            .AddSignInManager()
             .AddDefaultTokenProviders();
         services.Configure<DataProtectionTokenProviderOptions>(options =>
             options.TokenLifespan = TimeSpan.FromHours(24));

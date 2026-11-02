@@ -5,7 +5,7 @@ using PersonalFinance.Application.Accounts;
 
 namespace PersonalFinance.Infrastructure.Accounts;
 
-public sealed class IdentityAccountIdentity(UserManager<AccountIdentityUser> userManager) : IAccountIdentity
+public sealed class IdentityAccountIdentity(UserManager<AccountIdentityUser> userManager, SignInManager<AccountIdentityUser> signInManager) : IAccountIdentity
 {
     public async Task<EmailConfirmation?> CreateAccountAsync(
         string email, string password, CancellationToken cancellationToken)
@@ -63,6 +63,17 @@ public sealed class IdentityAccountIdentity(UserManager<AccountIdentityUser> use
             return false;
 
         var result = await userManager.ConfirmEmailAsync(user, token);
+        cancellationToken.ThrowIfCancellationRequested();
+        return result.Succeeded;
+    }
+
+    // Comment ID: METHOD-009. Delegates password verification and failed-attempt lockout tracking to Identity's sign-in manager.
+    public async Task<bool> SignInAsync(string email, string password, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var user = await userManager.FindByEmailAsync(email);
+        if (user is null) return false;
+        var result = await signInManager.CheckPasswordSignInAsync(user, password, lockoutOnFailure: true);
         cancellationToken.ThrowIfCancellationRequested();
         return result.Succeeded;
     }

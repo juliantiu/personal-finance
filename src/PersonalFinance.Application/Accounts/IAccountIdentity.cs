@@ -14,4 +14,7 @@ public interface IAccountIdentity
     /// token may succeed; an invalid token must fail even if the account is already confirmed.
     /// </summary>
     Task<bool> ConfirmEmailAsync(Guid accountId, string token, CancellationToken cancellationToken);
+
+    // Comment ID: METHOD-008. Checks credentials through Identity while enforcing confirmation and account lockout rules.
+    Task<bool> SignInAsync(string email, string password, CancellationToken cancellationToken);
 }

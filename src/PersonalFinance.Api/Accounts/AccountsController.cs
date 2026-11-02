@@ -1,5 +1,6 @@
 using Mediator;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using PersonalFinance.Application.Accounts;
 using PersonalFinance.Application.Accounts.ConfirmEmail;
 using PersonalFinance.Application.Accounts.RegisterAccount;
@@ -10,7 +11,7 @@ namespace PersonalFinance.Api.Accounts;
 
 [ApiController]
 [Route("api/accounts")]
-public sealed class AccountsController(IMediator mediator) : ControllerBase
+public sealed class AccountsController(IMediator mediator, IAccountIdentity accountIdentity) : ControllerBase
 {
     [HttpPost("register")]
     [ProducesResponseType<AccountRequestAcknowledgement>(StatusCodes.Status202Accepted)]
@@ -40,5 +41,16 @@ public sealed class AccountsController(IMediator mediator) : ControllerBase
     {
         await mediator.Send(new ResendConfirmationCommand(request.Email), cancellationToken);
         return Accepted(new AccountRequestAcknowledgement("Request accepted."));
+    }
+
+    [HttpPost("sign-in")]
+    [EnableRateLimiting("SignIn")]
+    // Comment ID: METHOD-010. Returns the same generic unauthorized response for every unsuccessful sign-in.
+    public async Task<IActionResult> SignIn(SignInRequest request, CancellationToken cancellationToken)
+    {
+        var accepted = await accountIdentity.SignInAsync(request.Email, request.Password, cancellationToken);
+        return accepted
+            ? Ok(new AccountRequestAcknowledgement("Sign-in accepted."))
+            : Unauthorized(new ProblemDetails { Title = "Sign-in failed. Check your details and try again.", Status = StatusCodes.Status401Unauthorized });
     }
 }
