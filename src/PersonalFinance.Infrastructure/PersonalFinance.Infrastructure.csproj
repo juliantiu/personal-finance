@@ -5,6 +5,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="OpenIddict.EntityFrameworkCore" Version="7.2.0" />
     <ProjectReference Include="..\PersonalFinance.Application\PersonalFinance.Application.csproj" />
     <ProjectReference Include="..\PersonalFinance.Domain\PersonalFinance.Domain.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.3" />

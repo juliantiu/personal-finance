@@ -24,6 +24,9 @@ public static class DependencyInjection
 
         services.AddDataProtection();
         services.AddDbContext<AccountIdentityDbContext>(options => options.UseSqlServer(connectionString));
+        services.AddOpenIddict()
+            .AddCore(options => options.UseEntityFrameworkCore()
+                .UseDbContext<AccountIdentityDbContext>());
         services.AddIdentityCore<AccountIdentityUser>(options =>
             {
                 options.User.RequireUniqueEmail = true;
@@ -39,6 +42,8 @@ public static class DependencyInjection
         services.Configure<DataProtectionTokenProviderOptions>(options =>
             options.TokenLifespan = TimeSpan.FromHours(24));
         services.AddScoped<IAccountIdentity, IdentityAccountIdentity>();
+        services.AddScoped<IBffSessionStore, ProtectedBffSessionStore>();
+        services.AddSingleton(TimeProvider.System);
 
         services.Configure<ConfirmationEmailOptions>(configuration.GetSection(ConfirmationEmailOptions.SectionName));
         if (isDevelopment)

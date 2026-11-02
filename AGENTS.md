@@ -15,6 +15,12 @@ These instructions apply throughout this repository.
 - Once the user has authorized the agreed implementation, proceed within that scope without repeatedly requesting the same approval. If new ambiguity or a required scope change arises, pause the affected work and clarify before proceeding.
 - An explicit request to edit documentation, including this file, authorizes that documentation change only; it does not authorize application implementation.
 
+## Document new classes and methods
+
+- During implementation, whenever a new class is created outside the `tests/` directory, add a comment at the top of the file describing the class's purpose and what it is used for.
+- During implementation, whenever a new method is created outside the `tests/` directory, add a comment immediately above the method describing its purpose and briefly explaining what it does.
+- Give every class and method comment a unique, easy-to-reference ID using the format `Comment ID: CLASS-###` for class comments or `Comment ID: METHOD-###` for method comments. Keep IDs unique within the repository while the comments are present. Leave the comments in place after implementation; the user will remove them after reviewing the code.
+
 ## Develop vertically by use case
 
 - Select one user-authorized use case at a time, or a smaller coherent slice of it agreed with the user.
@@ -27,6 +33,7 @@ These instructions apply throughout this repository.
 ## Domain-driven design and Clean/Onion architecture
 
 - Model business concepts and behavior using the project's agreed domain language. Clarify unclear terminology and business rules with the user.
+- Prefer datetimes with timezone information for database storage whenever possible.
 - Define entities, value objects, aggregates, and domain services where the use case warrants them. Enforce business invariants within the domain and respect aggregate and bounded-context boundaries.
 - Keep domain logic independent of UI frameworks, databases, ORMs, network clients, and other infrastructure concerns.
 - Use the application layer to orchestrate use cases and coordinate domain behavior through explicit ports or interfaces. Keep business rules in the domain rather than duplicating them in controllers, persistence code, or UI components.

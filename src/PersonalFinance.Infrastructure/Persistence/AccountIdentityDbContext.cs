@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using OpenIddict.EntityFrameworkCore.Models;
 using PersonalFinance.Infrastructure.Accounts;
 
 namespace PersonalFinance.Infrastructure.Persistence;
@@ -7,9 +8,13 @@ namespace PersonalFinance.Infrastructure.Persistence;
 public sealed class AccountIdentityDbContext(DbContextOptions<AccountIdentityDbContext> options)
     : IdentityUserContext<AccountIdentityUser, Guid>(options)
 {
+    public DbSet<BffSessionEntity> BffSessions => Set<BffSessionEntity>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+
+        builder.UseOpenIddict();
 
         builder.Entity<AccountIdentityUser>(user =>
         {
@@ -17,6 +22,19 @@ public sealed class AccountIdentityDbContext(DbContextOptions<AccountIdentityDbC
             user.HasIndex(account => account.NormalizedEmail)
                 .HasDatabaseName("EmailIndex")
                 .IsUnique();
+        });
+
+        builder.Entity<BffSessionEntity>(session =>
+        {
+            session.ToTable("BffSessions");
+            session.HasKey(value => value.Id);
+            session.Property(value => value.Id).HasMaxLength(64);
+            session.Property(value => value.ProtectedPayload).IsRequired();
+            session.HasIndex(value => value.ExpiresAt);
+            session.HasOne<AccountIdentityUser>()
+                .WithMany()
+                .HasForeignKey(value => value.AccountId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

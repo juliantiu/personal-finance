@@ -1,6 +1,6 @@
-# UC-020 — Sign in and sign out — Draft implementation plan
+# UC-020 — Sign in and sign out — Implementation plan
 
-Status: **Planning draft, revised 30 October 2026.** The product decisions below were confirmed by the user on 30 October 2026. This plan is for review before application implementation.
+Status: **Implementation in progress; Phase 1 completed on 30 October 2026.** The product decisions below were confirmed by the user on 30 October 2026. Later phases remain unstarted.
 
 ## Scope and behavior
 
@@ -46,7 +46,7 @@ All sign-in failures use the same generic user-facing message, including unknown
 
 Each phase is a vertical slice with a focused red test first, the minimum implementation to make it green, and a refactor while green. Finish and verify a phase before starting the next.
 
-1. **BFF session foundation.** Add server-side OIDC authorization-code/PKCE handling, database-backed OpenIddict token/authorization storage, protected server-side session/token records, migrations, signing credentials, and local configuration. Prove persistence and token protection with LocalDB integration tests.
+1. **Complete — BFF session foundation.** Configure API-hosted OpenIddict authorization-code flow with PKCE, OpenIddict EF token/authorization storage, Data Protection token formats for authorization codes and refresh tokens while retaining JWT access-token format, protected BFF session/token records, SQL Server migration, local development issuer and ephemeral signing/encryption credentials. LocalDB integration tests verify the OpenIddict/session tables, protected token persistence and session revocation; API discovery advertises code flow and S256 PKCE.
 2. **Credential sign-in policy.** Add verified-email eligibility, generic failure responses, bounded Identity lockout, and independent server-side sign-in rate limiting. Choose finite lockout/rate-limit settings and refresh-token lifetime values, record them in configuration documentation, and verify invalid, unverified, locked, throttled, and valid credentials against LocalDB.
 3. **Login routing and return behavior.** Add `/login` and protected-route handling. Test that anonymous protected-page visits retain only safe local return paths, successful sign-in returns to the requested page, and a direct login-page visit defaults to `/budget-profiles`. Keep the budget-profiles page itself outside UC-020.
 4. **BFF session cookie and request path.** Issue only a non-persistent opaque session cookie with HttpOnly/Secure and deployment-compatible SameSite settings. Configure exact-origin credentialed CORS and antiforgery checks. Verify the browser cannot read the cookie or token set, and an authenticated browser request reaches the BFF successfully.
@@ -55,6 +55,8 @@ Each phase is a vertical slice with a focused red test first, the minimum implem
 7. **Release-origin feasibility and regression.** Test configured client/BFF origins in supported browsers, including production cookie, credentialed CORS, and antiforgery behavior, HTTPS callbacks, and persisted signing/Data Protection keys. If the selected Azure origins do not support the required browser session cookie flow, pause deployment and resolve the hosting/domain design before release. Run UC-020 integration/browser coverage and relevant existing account regression checks.
 
 Use the selected xUnit.net v3, bUnit, Playwright for .NET, and API/SQL Server integration-test stack. Tests use synthetic accounts and local/test keys; no real email is needed for this use case. Do not claim production-host feasibility from LocalDB tests. Verify .NET 10/OpenIddict runtime support, HTTPS callbacks, protected persistent server-side token storage, exact-origin credentialed CORS, browser session-cookie acceptance, antiforgery, and database connectivity on the selected Azure hosting combination as a release gate.
+
+Phase 1 red/green record: the migration-table test failed against the Identity-only schema; the discovery test returned 404 with the OpenIddict server disabled; and the session-protection test found plaintext token data when protection was temporarily removed. After the new migration, server configuration, and Data Protection storage were applied, all three focused tests passed. In the full integration run, 27 tests passed and one unrelated existing SMTP transport test failed (`Smtp4dev_transport_maps_connection_failures_to_safe_delivery_errors`); existing account persistence coverage passed.
 
 ## Explicit exclusions and dependencies
 
