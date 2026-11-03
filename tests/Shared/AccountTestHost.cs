@@ -20,12 +20,13 @@ public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173
     public CapturedEmailTransport Email { get; } = new();
     public bool MissingDatabase { get; init; }
     public bool MissingEmail { get; init; }
+    public string Issuer { get; init; } = "https://localhost:7207/";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:Identity", MissingDatabase ? "" :
-            $"Server=(localdb)\\MSSQLLocalDB;Database={databaseName};Integrated Security=true;TrustServerCertificate=true");
+            $"Server=(localdb)\\MSSQLLocalDB;Database={databaseName};Integrated Security=true;TrustServerCertificate=true;Connect Timeout=60");
         builder.UseSetting("Email:ClientBaseUrl", clientOrigin + "/");
         builder.UseSetting("Email:SenderAddress", MissingEmail ? "" : "sender@example.test");
         builder.UseSetting("Email:Smtp4Dev:Host", "127.0.0.1");
@@ -34,6 +35,9 @@ public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173
         builder.UseSetting("Email:Smtp4Dev:Username", "");
         builder.UseSetting("Email:Smtp4Dev:Password", "");
         builder.UseSetting("Cors:AllowedOrigins:0", clientOrigin);
+        builder.UseSetting("Authentication:OpenIddict:Issuer", Issuer);
+        builder.UseSetting("Authentication:Antiforgery:SameSite", "Lax");
+        builder.UseSetting("Authentication:Antiforgery:SecureCookie", "false");
         builder.ConfigureLogging(logging => logging.ClearProviders());
         builder.ConfigureServices(services =>
         {

@@ -9,6 +9,7 @@ public sealed class AccountIdentityDbContext(DbContextOptions<AccountIdentityDbC
     : IdentityUserContext<AccountIdentityUser, Guid>(options)
 {
     public DbSet<BffSessionEntity> BffSessions => Set<BffSessionEntity>();
+    public DbSet<AuthenticationTicketEntity> AuthenticationTickets => Set<AuthenticationTicketEntity>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -35,6 +36,15 @@ public sealed class AccountIdentityDbContext(DbContextOptions<AccountIdentityDbC
                 .WithMany()
                 .HasForeignKey(value => value.AccountId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<AuthenticationTicketEntity>(ticket =>
+        {
+            ticket.ToTable("AuthenticationTickets");
+            ticket.HasKey(value => value.Id);
+            ticket.Property(value => value.Id).HasMaxLength(64);
+            ticket.Property(value => value.ProtectedPayload).IsRequired();
+            ticket.HasIndex(value => value.ExpiresAt);
         });
     }
 }

@@ -365,6 +365,26 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                     b.ToTable("UserAccounts", (string)null);
                 });
 
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.AuthenticationTicketEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<byte[]>("ProtectedPayload")
+                        .IsRequired()
+                        .HasColumnType("varbinary(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.ToTable("AuthenticationTickets", (string)null);
+                });
+
             modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.BffSessionEntity", b =>
                 {
                     b.Property<string>("Id")

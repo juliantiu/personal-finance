@@ -4,7 +4,7 @@ Source: [v1.0 proposal](../PROPOSAL.md). Supporting design: [logical schema](../
 
 Version selection: branch `main` has no release version; `docs/v1.0/` is the only version folder.
 
-Status: **UC-001–UC-019 approved for both phases by user instruction on 20 October 2026. UC-020 sign-in/sign-out scope and policy decisions confirmed on 30 October 2026; implementation plan is a draft for review.** Proposed schema policies remain qualified. UC-020 has no flow, sequence, or state diagrams by design.
+Status: **UC-001–UC-019 approved for both phases by user instruction on 20 October 2026. UC-020 sign-in/sign-out scope and policy decisions confirmed on 30 October 2026; implementation is in progress, with Phases 1–3 complete.** Proposed schema policies remain qualified. UC-020 has no flow, sequence, or state diagrams by design.
 
 ## Feature coverage
 
@@ -34,7 +34,7 @@ Status: **UC-001–UC-019 approved for both phases by user instruction on 20 Oct
 | Multiple repayments per IOU; one target per repayment; later periods | UC-013, UC-016 | Covered (D4); full-magnitude/overpayment policy A6 remains proposed. |
 | Savings/debt/unpaid reports, retired obligations, rename aggregation | UC-016 | Covered; main currency only, dated corrections retained. |
 | Income/spending by transaction date; all dates/ranges; item filters | UC-017, UC-018 | Covered; approval period is distinct from transaction date. |
-| Workflow, suggested build order, completion criteria | UC-001–UC-020 | Supporting delivery constraints; UC-020's implementation plan is a draft pending user approval. |
+| Workflow, suggested build order, completion criteria | UC-001–UC-020 | Supporting delivery constraints; UC-020's implementation plan tracks the remaining phases. |
 | Live bank connections with saved-card matching | — | Deferred by proposal; no v1.0 live-connection use case. |
 | Restoration; correction deletion; FX/revaluation workflows | — | Not established requirements; no new use cases invented. |
 

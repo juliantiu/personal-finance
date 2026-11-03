@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,6 +29,7 @@ public static class DependencyInjection
         services.AddOpenIddict()
             .AddCore(options => options.UseEntityFrameworkCore()
                 .UseDbContext<AccountIdentityDbContext>());
+        services.AddAuthentication();
         services.AddIdentityCore<AccountIdentityUser>(options =>
             {
                 options.User.RequireUniqueEmail = true;
@@ -47,6 +50,9 @@ public static class DependencyInjection
             options.TokenLifespan = TimeSpan.FromHours(24));
         services.AddScoped<IAccountIdentity, IdentityAccountIdentity>();
         services.AddScoped<IBffSessionStore, ProtectedBffSessionStore>();
+        services.AddSingleton<ITicketStore, ProtectedAuthenticationTicketStore>();
+        services.AddOptions<CookieAuthenticationOptions>(IdentityConstants.ApplicationScheme)
+            .Configure<ITicketStore>((options, ticketStore) => options.SessionStore = ticketStore);
         services.AddSingleton(TimeProvider.System);
 
         services.Configure<ConfirmationEmailOptions>(configuration.GetSection(ConfirmationEmailOptions.SectionName));

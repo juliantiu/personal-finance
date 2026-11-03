@@ -1,0 +1,104 @@
+@* Comment ID: CLASS-016. Collects verified-account credentials and starts the server-side authorization-code flow. *@
+@page "/login"
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Components.WebAssembly.Http
+@using PersonalFinance.Contracts.Accounts
+@using PersonalFinance.Client.Accounts
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<PageTitle>Sign in</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="register-page">
+    <MudPaper Elevation="2" Class="register-card pa-6 pa-sm-8">
+        <MudText Typo="Typo.h4" GutterBottom="true">Sign in</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-6">Use the verified email address for your account.</MudText>
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-4">@_error</MudAlert>
+        }
+        <MudForm @ref="_form">
+            <MudTextField T="string" Label="Email address" @bind-Value="_email" InputType="InputType.Email" Required="true"
+                          RequiredError="Enter your email address." Disabled="_submitting" />
+            <MudTextField T="string" Label="Password" @bind-Value="_password" InputType="InputType.Password" Required="true"
+                          RequiredError="Enter your password." Disabled="_submitting" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" Class="mt-6"
+                       Disabled="_submitting" OnClick="SubmitAsync">
+                @(_submitting ? "Signing in…" : "Sign in")
+            </MudButton>
+        </MudForm>
+    </MudPaper>
+</MudContainer>
+
+@code {
+    private MudForm? _form;
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private string? _error;
+    private string? _requestToken;
+    private bool _submitting;
+    [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+
+    // Comment ID: METHOD-031. Fetches the antiforgery token required by the BFF credential endpoint.
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/auth/antiforgery");
+            request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+            using var response = await Http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+                _requestToken = (await response.Content.ReadFromJsonAsync<AntiforgeryResponse>())?.RequestToken;
+        }
+        catch (HttpRequestException) { }
+        catch (TaskCanceledException) { }
+    }
+
+    // Comment ID: METHOD-032. Validates credentials through the BFF and starts OIDC without receiving browser tokens.
+    private async Task SubmitAsync()
+    {
+        if (_form is null || _submitting) return;
+        await _form.ValidateAsync();
+        if (!_form.IsValid) return;
+        _error = null;
+        _submitting = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "api/auth/sign-in")
+            {
+                Content = JsonContent.Create(new SignInRequest(_email, _password))
+            };
+            request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+            if (!string.IsNullOrWhiteSpace(_requestToken)) request.Headers.Add("X-CSRF-TOKEN", _requestToken);
+            using var response = await Http.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                    ? "Sign-in failed. Check your details and try again."
+                    : "We couldn’t complete sign-in. Check your connection and try again.";
+                return;
+            }
+
+            var safePath = SafeReturnPath.Validate(ReturnUrl, new Uri(Navigation.BaseUri)) ?? "/budget-profiles";
+            var baseAddress = Http.BaseAddress ?? new Uri(Navigation.BaseUri);
+            var start = new Uri(baseAddress, "api/auth/start?returnPath=" + Uri.EscapeDataString(safePath));
+            _password = string.Empty;
+            Navigation.NavigateTo(start.ToString(), forceLoad: true);
+        }
+        catch (HttpRequestException)
+        {
+            _error = "We couldn’t reach the service. Check your connection and try again.";
+        }
+        catch (TaskCanceledException)
+        {
+            _error = "The request timed out. Check your connection and try again.";
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    // Comment ID: CLASS-017. Carries the antiforgery request token returned by the API.
+    private sealed record AntiforgeryResponse(string? RequestToken);
+}

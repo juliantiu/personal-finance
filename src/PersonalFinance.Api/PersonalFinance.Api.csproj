@@ -10,6 +10,7 @@
     <ProjectReference Include="..\PersonalFinance.Contracts\PersonalFinance.Contracts.csproj" />
     <PackageReference Include="Mediator.SourceGenerator" Version="3.0.2" PrivateAssets="all" />
     <PackageReference Include="OpenIddict.AspNetCore" Version="7.2.0" />
+    <PackageReference Include="OpenIddict.Client.AspNetCore" Version="7.2.0" />
   </ItemGroup>
 
   <PropertyGroup>

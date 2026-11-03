@@ -4,11 +4,15 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.AspNetCore.Identity;
+using System.Net;
+using System.Net.Sockets;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
 using PersonalFinance.Tests.Support;
+using PersonalFinance.Infrastructure.Accounts;
 using Xunit;
 using static Microsoft.Playwright.Assertions;
 
@@ -16,6 +20,37 @@ namespace PersonalFinance.EndToEndTests;
 
 public sealed class AccountBrowserTests
 {
+    [Fact]
+    public async Task Verified_login_completes_PKCE_without_exposing_tokens_and_returns_to_local_page()
+    {
+        await using var session = await BrowserSession.StartAsync();
+        await AddConfirmedUser(session.Api, "login-browser@example.test");
+        var page = session.Page;
+        await page.GotoAsync(session.ClientUrl + "/login?returnUrl=%2Fbudget-profiles");
+        await page.GetByLabel("Email address", new() { Exact = true }).FillAsync("login-browser@example.test");
+        await page.GetByLabel("Password", new() { Exact = true }).FillAsync("abcdefghijkl");
+        await page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync();
+
+        var expectedUrl = session.ClientUrl + "/budget-profiles";
+        try { await Expect(page).ToHaveURLAsync(expectedUrl); }
+        catch (Exception exception)
+        {
+            var alerts = await page.Locator(".mud-alert").AllInnerTextsAsync();
+            throw new InvalidOperationException($"Login did not complete. Current URL: {page.Url}. Alerts: {string.Join(" | ", alerts)}. Responses: {string.Join(" | ", session.ApiResponses)}. Console: {string.Join(" | ", session.ConsoleErrors)}", exception);
+        }
+        var sessionStatus = await page.EvaluateAsync<bool>(
+            "async apiBase => (await (await fetch(apiBase + 'api/auth/session', { credentials: 'include' })).json()).authenticated",
+            session.ApiUrl);
+        Assert.True(sessionStatus);
+        var cookies = await page.Context.CookiesAsync();
+        var sessionCookie = Assert.Single(cookies, cookie => cookie.Name == "__Host-PF.Session");
+        Assert.True(sessionCookie.HttpOnly);
+        Assert.True(sessionCookie.Secure);
+        Assert.DoesNotContain("access_token", await page.Locator("body").InnerTextAsync(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("refresh_token", await page.Locator("body").InnerTextAsync(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(session.PageErrors);
+    }
+
     [Fact]
     public async Task Registration_confirmation_and_replay_persist_through_real_browser_and_api()
     {
@@ -98,6 +133,14 @@ public sealed class AccountBrowserTests
         await page.GetByLabel("Confirm password", new() { Exact = true }).FillAsync("abcdefghijkl");
         await page.GetByLabel("Confirm password", new() { Exact = true }).BlurAsync();
     }
+
+    private static async Task AddConfirmedUser(AccountTestHost host, string email)
+    {
+        using var scope = host.Services.CreateScope();
+        var manager = scope.ServiceProvider.GetRequiredService<UserManager<AccountIdentityUser>>();
+        var user = new AccountIdentityUser { UserName = email, Email = email, EmailConfirmed = true };
+        Assert.True((await manager.CreateAsync(user, "abcdefghijkl")).Succeeded);
+    }
 }
 
 internal sealed class BrowserSession : IAsyncDisposable
@@ -108,7 +151,10 @@ internal sealed class BrowserSession : IAsyncDisposable
     public AccountTestHost Api { get; private set; } = null!;
     public IPage Page { get; private set; } = null!;
     public string ClientUrl { get; private set; } = "";
+    public string ApiUrl { get; private set; } = "";
     public List<string> PageErrors { get; } = [];
+    public List<string> ApiResponses { get; } = [];
+    public List<string> ConsoleErrors { get; } = [];
 
     public static async Task<BrowserSession> StartAsync()
     {
@@ -124,7 +170,7 @@ internal sealed class BrowserSession : IAsyncDisposable
                 throw new InvalidOperationException("Publish the client before browser tests: dotnet publish src/PersonalFinance.Client -c Release");
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { WebRootPath = webRoot });
             builder.Logging.ClearProviders();
-            builder.WebHost.UseUrls("http://127.0.0.1:0");
+            builder.WebHost.UseUrls($"http://127.0.0.1:{ReservePort()}");
             session.client = builder.Build();
             string apiUrl = "";
             // Serve test configuration without changing the published client artifact.
@@ -141,16 +187,28 @@ internal sealed class BrowserSession : IAsyncDisposable
             await session.client.StartAsync();
             session.ClientUrl = session.client.Services.GetRequiredService<IServer>()
                 .Features.Get<IServerAddressesFeature>()!.Addresses.Single().TrimEnd('/');
-            session.Api = new AccountTestHost(session.ClientUrl);
-            session.Api.UseKestrel(0);
+            var apiPort = ReservePort();
+            session.Api = new AccountTestHost(session.ClientUrl) { Issuer = $"http://127.0.0.1:{apiPort}/" };
+            session.Api.UseKestrel(apiPort);
             using var http = session.Api.CreateClient();
             apiUrl = http.BaseAddress!.ToString();
+            session.ApiUrl = apiUrl;
             await session.Api.MigrateAsync();
             session.playwright = await Playwright.CreateAsync();
-            session.browser = await session.playwright.Chromium.LaunchAsync(new() { Headless = true });
+            session.browser = await session.playwright.Chromium.LaunchAsync(new()
+            {
+                Headless = true,
+                ExecutablePath = @"C:\Program Files\Google\Chrome\Application\chrome.exe"
+            });
             session.Page = await session.browser.NewPageAsync();
             session.Page.SetDefaultTimeout(15000);
             session.Page.PageError += (_, error) => session.PageErrors.Add(error);
+            session.Page.Response += (_, response) =>
+            {
+                if (response.Url.Contains("/api/", StringComparison.Ordinal))
+                    session.ApiResponses.Add($"{(int)response.Status} {response.Url}");
+            };
+            session.Page.Console += (_, message) => { if (message.Type == "error") session.ConsoleErrors.Add(message.Text); };
             // Fail with startup diagnostics before entering any account data.
             var startupErrors = new List<string>();
             session.Page.Console += (_, message) => { if (message.Type == "error") startupErrors.Add(message.Text); };
@@ -163,6 +221,13 @@ internal sealed class BrowserSession : IAsyncDisposable
             return session;
         }
         catch { await session.DisposeAsync(); throw; }
+    }
+
+    private static int ReservePort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
     public async ValueTask DisposeAsync()

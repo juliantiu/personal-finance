@@ -1,0 +1,14 @@
+@* Comment ID: CLASS-015. Sends anonymous users to login and keeps only a validated local return path. *@
+@inject NavigationManager Navigation
+
+@code {
+    // Comment ID: METHOD-030. Builds a login URL from the current protected route after validating its local path.
+    protected override void OnInitialized()
+    {
+        var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri);
+        var candidate = "/" + relativePath;
+        var returnPath = SafeReturnPath.Validate(candidate, new Uri(Navigation.BaseUri));
+        var destination = "/login" + (returnPath is null ? string.Empty : "?returnUrl=" + Uri.EscapeDataString(returnPath));
+        Navigation.NavigateTo(destination, replace: true);
+    }
+}
