@@ -27,8 +27,11 @@ public static class DependencyInjection
         services.AddDataProtection();
         services.AddDbContext<AccountIdentityDbContext>(options => options.UseSqlServer(connectionString));
         services.AddOpenIddict()
-            .AddCore(options => options.UseEntityFrameworkCore()
-                .UseDbContext<AccountIdentityDbContext>());
+            .AddCore(options =>
+            {
+                options.DisableEntityCaching();
+                options.UseEntityFrameworkCore().UseDbContext<AccountIdentityDbContext>();
+            });
         services.AddAuthentication();
         services.AddIdentityCore<AccountIdentityUser>(options =>
             {

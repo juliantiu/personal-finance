@@ -12,6 +12,10 @@
 <MudContainer MaxWidth="MaxWidth.Small" Class="register-page">
     <MudPaper Elevation="2" Class="register-card pa-6 pa-sm-8">
         <MudText Typo="Typo.h4" GutterBottom="true">Sign in</MudText>
+        @if (_signedOutConfirmed)
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-4">You have been signed out.</MudAlert>
+        }
         <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-6">Use the verified email address for your account.</MudText>
         @if (!string.IsNullOrWhiteSpace(_error))
         {
@@ -37,7 +41,25 @@
     private string? _error;
     private string? _requestToken;
     private bool _submitting;
+    private bool _signedOutConfirmed;
     [SupplyParameterFromQuery(Name = "returnUrl")] public string? ReturnUrl { get; set; }
+    [SupplyParameterFromQuery(Name = "signedOut")] public bool SignedOut { get; set; }
+
+    // Comment ID: METHOD-053. Confirms the BFF reports an absent session before displaying the signed-out URL hint.
+    protected override async Task OnParametersSetAsync()
+    {
+        _signedOutConfirmed = false;
+        if (!SignedOut) return;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/auth/session");
+            request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+            using var response = await Http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+                _signedOutConfirmed = (await response.Content.ReadFromJsonAsync<SessionStatus>())?.Authenticated == false;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException) { }
+    }
 
     // Comment ID: METHOD-031. Fetches the antiforgery token required by the BFF credential endpoint.
     protected override async Task OnInitializedAsync()
@@ -101,4 +123,7 @@
 
     // Comment ID: CLASS-017. Carries the antiforgery request token returned by the API.
     private sealed record AntiforgeryResponse(string? RequestToken);
+
+    // Comment ID: CLASS-035. Carries only the BFF authentication status needed to verify signed-out feedback.
+    private sealed record SessionStatus(bool Authenticated);
 }

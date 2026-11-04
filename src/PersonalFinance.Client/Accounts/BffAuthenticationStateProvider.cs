@@ -8,6 +8,9 @@ namespace PersonalFinance.Client.Accounts;
 // Comment ID: CLASS-010. Resolves Blazor authentication state from the BFF without receiving OAuth tokens.
 public sealed class BffAuthenticationStateProvider(HttpClient httpClient) : AuthenticationStateProvider
 {
+    // Comment ID: METHOD-051. Notifies protected routes and account controls after the BFF confirms session termination.
+    public void NotifySignedOut() => NotifyAuthenticationStateChanged(Task.FromResult(Anonymous()));
+
     // Comment ID: METHOD-017. Queries the cookie-backed BFF session endpoint and returns an anonymous principal on safe failures.
     public override async Task<AuthenticationState> GetAuthenticationStateAsync()
     {

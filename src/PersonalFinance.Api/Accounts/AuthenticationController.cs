@@ -132,6 +132,31 @@ public sealed class AuthenticationController(
             : Ok(new SessionResponse(false, null));
     }
 
+    [HttpPost("sign-out")]
+    // Comment ID: METHOD-049. Validates browser intent and clears the opaque cookie only after session termination succeeds.
+    public async Task<IActionResult> SignOutCurrentSession([FromServices] SignOutBffSession signOut, CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+        try { await antiforgery.ValidateRequestAsync(HttpContext); }
+        catch (AntiforgeryValidationException)
+        {
+            return BadRequest(new ProblemDetails { Title = "The sign-out request could not be validated. Refresh the page and try again.", Status = 400 });
+        }
+
+        try { await signOut.ExecuteAsync(Request.Cookies[SessionCookieName] ?? string.Empty, cancellationToken); }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ProblemDetails { Title = "We couldn’t complete sign-out. Please try again.", Status = 503 });
+        }
+
+        Response.Cookies.Delete(SessionCookieName, new CookieOptions
+        {
+            HttpOnly = true, Secure = true, SameSite = SameSiteMode.None, Path = "/", IsEssential = true
+        });
+        return NoContent();
+    }
+
     // Comment ID: METHOD-025. Builds the same safe unauthorized response for every credential failure.
     private IActionResult SignInFailed() => Unauthorized(new ProblemDetails
     {

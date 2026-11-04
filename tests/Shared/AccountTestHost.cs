@@ -20,6 +20,7 @@ public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173
     public CapturedEmailTransport Email { get; } = new();
     public bool MissingDatabase { get; init; }
     public bool MissingEmail { get; init; }
+    public bool OpenIddictEnabled { get; init; } = true;
     public string Issuer { get; init; } = "https://localhost:7207/";
     public Action<IServiceCollection>? ConfigureAdditionalServices { get; init; }
 
@@ -37,6 +38,7 @@ public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173
         builder.UseSetting("Email:Smtp4Dev:Password", "");
         builder.UseSetting("Cors:AllowedOrigins:0", clientOrigin);
         builder.UseSetting("Authentication:OpenIddict:Issuer", Issuer);
+        builder.UseSetting("Authentication:OpenIddict:Enabled", OpenIddictEnabled.ToString());
         builder.UseSetting("Authentication:Antiforgery:SameSite", "Lax");
         builder.UseSetting("Authentication:Antiforgery:SecureCookie", "false");
         builder.ConfigureLogging(logging => logging.ClearProviders());

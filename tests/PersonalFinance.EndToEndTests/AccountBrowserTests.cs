@@ -12,6 +12,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Authentication;
+using OpenIddict.Abstractions;
+using OpenIddict.Validation.AspNetCore;
 using PersonalFinance.Application.Accounts;
 using PersonalFinance.Api.Accounts;
 using PersonalFinance.Tests.Support;
@@ -23,6 +26,74 @@ namespace PersonalFinance.EndToEndTests;
 
 public sealed class AccountBrowserTests
 {
+    [Fact]
+    public async Task Signing_out_revokes_rotated_tokens_and_preserves_a_second_browser_session()
+    {
+        await using var browser = await BrowserSession.StartAsync(services =>
+            services.AddSingleton<IStartupFilter, SyntheticResourceStartupFilter>());
+        await AddConfirmedUser(browser.Api, "signout-browser@example.test");
+        var page = browser.Page;
+        await Login(page, browser.ClientUrl, "signout-browser@example.test");
+        var firstCookie = Assert.Single(await page.Context.CookiesAsync(), cookie => cookie.Name == "__Host-PF.Session");
+        await using var secondContext = await page.Context.Browser!.NewContextAsync();
+        var secondPage = await secondContext.NewPageAsync();
+        await Login(secondPage, browser.ClientUrl, "signout-browser@example.test");
+        var secondCookie = Assert.Single(await secondContext.CookiesAsync(), cookie => cookie.Name == "__Host-PF.Session");
+        Assert.NotEqual(firstCookie.Value, secondCookie.Value);
+
+        var initial = await ReadSession(browser.Api, firstCookie.Value);
+        await ExpireAccessToken(browser.Api, firstCookie.Value);
+        using (var scope = browser.Api.Services.CreateScope())
+        {
+            Assert.NotNull(await scope.ServiceProvider.GetRequiredService<IBffSessionTokenProvider>()
+                .GetAccessTokenAsync(firstCookie.Value, TestContext.Current.CancellationToken));
+        }
+        var rotated = await ReadSession(browser.Api, firstCookie.Value);
+        var other = await ReadSession(browser.Api, secondCookie.Value);
+        Assert.NotEqual(initial.RefreshToken, rotated.RefreshToken);
+        Assert.Equal(HttpStatusCode.NoContent, await ResourceStatus(browser.Api, initial.AccessToken));
+        Assert.Equal(HttpStatusCode.NoContent, await ResourceStatus(browser.Api, rotated.AccessToken));
+        Assert.Equal(HttpStatusCode.NoContent, await ResourceStatus(browser.Api, other.AccessToken));
+
+        await page.RouteAsync("**/api/auth/sign-out", route => route.AbortAsync());
+        await page.GetByRole(AriaRole.Button, new() { Name = "Sign out", Exact = true }).ClickAsync();
+        await Expect(page.Locator(".mud-alert")).ToContainTextAsync("couldn’t complete sign-out");
+        Assert.True(await BrowserAuthenticated(page, browser.ApiUrl));
+        await page.UnrouteAsync("**/api/auth/sign-out");
+        await page.GetByRole(AriaRole.Button, new() { Name = "Sign out", Exact = true }).ClickAsync();
+        await Expect(page).ToHaveURLAsync(browser.ClientUrl + "/login?signedOut=true");
+        await Expect(page.Locator(".mud-alert")).ToContainTextAsync("You have been signed out.");
+        Assert.DoesNotContain(await page.Context.CookiesAsync(), cookie => cookie.Name == "__Host-PF.Session");
+        Assert.False(await BrowserAuthenticated(page, browser.ApiUrl));
+        Assert.True(await BrowserAuthenticated(secondPage, browser.ApiUrl));
+        Assert.Equal(1, await browser.Api.WithDatabaseAsync(db => db.BffSessions.CountAsync(TestContext.Current.CancellationToken)));
+        Assert.Equal(HttpStatusCode.Unauthorized, await ResourceStatus(browser.Api, initial.AccessToken));
+        Assert.Equal(HttpStatusCode.Unauthorized, await ResourceStatus(browser.Api, rotated.AccessToken));
+        Assert.Equal(HttpStatusCode.NoContent, await ResourceStatus(browser.Api, other.AccessToken));
+
+        using (var scope = browser.Api.Services.CreateScope())
+        {
+            var store = scope.ServiceProvider.GetRequiredService<IBffSessionStore>();
+            Assert.Null(await store.FindAsync(firstCookie.Value, TestContext.Current.CancellationToken));
+            var provider = scope.ServiceProvider.GetRequiredService<IBffSessionTokenProvider>();
+            Assert.Null(await provider.GetAccessTokenAsync(firstCookie.Value, TestContext.Current.CancellationToken));
+            var refresher = scope.ServiceProvider.GetRequiredService<IBffTokenRefresher>();
+            Assert.Null(await refresher.RefreshAsync(initial.RefreshToken!, TestContext.Current.CancellationToken));
+            Assert.Null(await refresher.RefreshAsync(rotated.RefreshToken!, TestContext.Current.CancellationToken));
+        }
+        await ExpireAccessToken(browser.Api, secondCookie.Value);
+        using (var scope = browser.Api.Services.CreateScope())
+        {
+            var token = await scope.ServiceProvider.GetRequiredService<IBffSessionTokenProvider>()
+                .GetAccessTokenAsync(secondCookie.Value, TestContext.Current.CancellationToken);
+            Assert.NotNull(token);
+            Assert.Equal(HttpStatusCode.NoContent, await ResourceStatus(browser.Api, token));
+        }
+        await secondPage.ReloadAsync();
+        await Expect(secondPage.GetByRole(AriaRole.Button, new() { Name = "Sign out", Exact = true })).ToBeVisibleAsync();
+        Assert.Empty(browser.PageErrors);
+    }
+
     [Fact]
     public async Task Verified_login_completes_PKCE_without_exposing_tokens_and_returns_to_local_page()
     {
@@ -181,6 +252,49 @@ public sealed class AccountBrowserTests
         await page.GetByLabel("Confirm password", new() { Exact = true }).BlurAsync();
     }
 
+    private static async Task Login(IPage page, string clientUrl, string email)
+    {
+        await page.GotoAsync(clientUrl + "/login");
+        await page.GetByLabel("Email address", new() { Exact = true }).FillAsync(email);
+        await page.GetByLabel("Password", new() { Exact = true }).FillAsync("abcdefghijkl");
+        await page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync();
+        await Expect(page).ToHaveURLAsync(clientUrl + "/budget-profiles");
+    }
+
+    private static Task<bool> BrowserAuthenticated(IPage page, string apiUrl) => page.EvaluateAsync<bool>(
+        "async api => (await (await fetch(api + 'api/auth/session', { credentials: 'include' })).json()).authenticated", apiUrl);
+
+    private static async Task<BffSession> ReadSession(AccountTestHost host, string sessionId)
+    {
+        using var scope = host.Services.CreateScope();
+        return Assert.IsType<BffSession>(await scope.ServiceProvider.GetRequiredService<IBffSessionStore>()
+            .FindAsync(sessionId, TestContext.Current.CancellationToken));
+    }
+
+    private static async Task ExpireAccessToken(AccountTestHost host, string sessionId)
+    {
+        var current = await ReadSession(host, sessionId);
+        using var scope = host.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<PersonalFinance.Infrastructure.Persistence.AccountIdentityDbContext>();
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sessionId)));
+        var row = await db.BffSessions.SingleAsync(value => value.Id == hash, TestContext.Current.CancellationToken);
+        var protector = scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>().CreateProtector("PersonalFinance.BffSession.v1");
+        row.ProtectedPayload = protector.Protect(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(current with
+        {
+            AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1)
+        }));
+        await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+    }
+
+    private static async Task<HttpStatusCode> ResourceStatus(AccountTestHost host, string accessToken)
+    {
+        using var client = host.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/synthetic/protected");
+        request.Headers.Authorization = new("Bearer", accessToken);
+        using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+        return response.StatusCode;
+    }
+
     private static async Task AddConfirmedUser(AccountTestHost host, string email)
     {
         using var scope = host.Services.CreateScope();
@@ -214,7 +328,7 @@ internal sealed class BrowserSession : IAsyncDisposable
     public List<string> ApiResponses { get; } = [];
     public List<string> ConsoleErrors { get; } = [];
 
-    public static async Task<BrowserSession> StartAsync()
+    public static async Task<BrowserSession> StartAsync(Action<IServiceCollection>? configure = null)
     {
         var session = new BrowserSession();
         try
@@ -246,7 +360,7 @@ internal sealed class BrowserSession : IAsyncDisposable
             session.ClientUrl = session.client.Services.GetRequiredService<IServer>()
                 .Features.Get<IServerAddressesFeature>()!.Addresses.Single().TrimEnd('/');
             var apiPort = ReservePort();
-            session.Api = new AccountTestHost(session.ClientUrl) { Issuer = $"http://127.0.0.1:{apiPort}/" };
+            session.Api = new AccountTestHost(session.ClientUrl) { Issuer = $"http://127.0.0.1:{apiPort}/", ConfigureAdditionalServices = configure };
             session.Api.UseKestrel(apiPort);
             using var http = session.Api.CreateClient();
             apiUrl = http.BaseAddress!.ToString();
@@ -298,4 +412,23 @@ internal sealed class BrowserSession : IAsyncDisposable
             finally { if (client is not null) await client.DisposeAsync(); }
         }
     }
+}
+
+internal sealed class SyntheticResourceStartupFilter : IStartupFilter
+{
+    public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+    {
+        next(app);
+        app.Use(async (context, continuation) =>
+        {
+            if (context.Request.Path != "/synthetic/protected") { await continuation(context); return; }
+            var result = await context.AuthenticateAsync(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+            var principal = result.Principal;
+            var eligible = context.RequestServices.GetRequiredService<IAccountSessionEligibility>();
+            context.Response.StatusCode = result.Succeeded && principal is not null &&
+                principal.HasScope("personal_finance_api") && principal.HasPresenter("personal-finance-client") &&
+                Guid.TryParse(principal.GetClaim(OpenIddictConstants.Claims.Subject), out var accountId) &&
+                await eligible.IsActiveAsync(accountId, context.RequestAborted) ? 204 : 401;
+        });
+    };
 }

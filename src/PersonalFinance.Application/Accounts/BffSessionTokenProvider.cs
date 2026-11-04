@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-
 namespace PersonalFinance.Application.Accounts;
 
 // Comment ID: CLASS-022. Coordinates account checks, refresh-token rotation, and persistence for BFF resource requests.
@@ -9,14 +7,12 @@ public sealed class BffSessionTokenProvider(
     IAccountSessionEligibility accountEligibility,
     TimeProvider timeProvider) : IBffSessionTokenProvider
 {
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> RefreshLocks = new(StringComparer.Ordinal);
-
     // Comment ID: METHOD-038. Returns an active session token, rotating and persisting credentials when the access token expires.
     public async Task<string?> GetAccessTokenAsync(string sessionId, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(sessionId)) return null;
 
-        var gate = RefreshLocks.GetOrAdd(sessionId, static _ => new SemaphoreSlim(1, 1));
+        var gate = BffSessionSynchronization.GetGate(sessionId);
         await gate.WaitAsync(cancellationToken);
         try
         {

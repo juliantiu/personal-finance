@@ -7,6 +7,7 @@ using PersonalFinance.Application.Accounts.RegisterAccount;
 using PersonalFinance.Application.Accounts;
 using PersonalFinance.Application.Common;
 using PersonalFinance.Infrastructure;
+using PersonalFinance.Infrastructure.Accounts;
 using PersonalFinance.Infrastructure.Email;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Antiforgery;
@@ -67,6 +68,9 @@ if (accountEndpointsEnabled)
     {
         builder.Services.AddScoped<IBffSessionTokenProvider, BffSessionTokenProvider>();
         builder.Services.AddScoped<IBffTokenRefresher, OpenIddictBffTokenRefresher>();
+        builder.Services.AddScoped<IBffGrantRevoker, OpenIddictBffGrantRevoker>();
+        builder.Services.AddScoped<IBffSessionTermination, ProtectedBffSessionTermination>();
+        builder.Services.AddScoped<SignOutBffSession>();
         builder.Services.AddHttpClient<IBffProtectedResourceClient, BffProtectedResourceClient>(client =>
             client.BaseAddress = new Uri(builder.Configuration["Authentication:OpenIddict:Issuer"]!, UriKind.Absolute));
         builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
@@ -135,6 +139,16 @@ if (accountEndpointsEnabled)
                 options.UseAspNetCore().EnableAuthorizationEndpointPassthrough();
                 if (isDevelopment)
                     options.UseAspNetCore().DisableTransportSecurityRequirement();
+            })
+            .AddValidation(options =>
+            {
+                options.UseLocalServer();
+                options.UseAspNetCore();
+                options.AddAudiences("personal_finance_api");
+                options.EnableTokenEntryValidation();
+                options.EnableAuthorizationEntryValidation();
+                options.AddEventHandler<OpenIddict.Validation.OpenIddictValidationEvents.ProcessAuthenticationContext>(descriptor =>
+                    descriptor.UseScopedHandler<BffResourceAccessPolicy>().SetOrder(int.MaxValue - 100_000));
             });
     }
     builder.Services.AddMediator(options =>
