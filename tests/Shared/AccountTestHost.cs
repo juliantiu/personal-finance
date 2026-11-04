@@ -21,6 +21,7 @@ public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173
     public bool MissingDatabase { get; init; }
     public bool MissingEmail { get; init; }
     public string Issuer { get; init; } = "https://localhost:7207/";
+    public Action<IServiceCollection>? ConfigureAdditionalServices { get; init; }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -44,6 +45,7 @@ public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173
             services.RemoveAll<IEmailTransport>();
             services.AddSingleton<IEmailTransport>(Email);
             services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+            ConfigureAdditionalServices?.Invoke(services);
         });
     }
 

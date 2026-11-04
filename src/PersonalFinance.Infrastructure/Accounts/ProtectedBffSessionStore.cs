@@ -62,6 +62,25 @@ public sealed class ProtectedBffSessionStore(
         }
     }
 
+    // Comment ID: METHOD-037. Re-protects and replaces token data while keeping the session's original absolute expiry.
+    public async Task UpdateAsync(string sessionId, BffSession session, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (string.IsNullOrWhiteSpace(sessionId)) return;
+
+        var id = HashSessionId(sessionId);
+        var row = await database.BffSessions.SingleOrDefaultAsync(value => value.Id == id, cancellationToken);
+        if (row is null || row.ExpiresAt <= timeProvider.GetUtcNow() || row.AccountId != session.AccountId)
+            return;
+        if (string.IsNullOrWhiteSpace(session.AccessToken) || session.AccessTokenExpiresAt <= timeProvider.GetUtcNow() ||
+            session.SessionExpiresAt != row.ExpiresAt)
+            throw new ArgumentException("Updated token data must preserve the active session expiry.", nameof(session));
+
+        var payload = JsonSerializer.SerializeToUtf8Bytes(session);
+        row.ProtectedPayload = protector.Protect(payload);
+        await database.SaveChangesAsync(cancellationToken);
+    }
+
     // Comment ID: METHOD-006. Deletes the row associated with the supplied opaque session identifier.
     public async Task RevokeAsync(string sessionId, CancellationToken cancellationToken)
     {

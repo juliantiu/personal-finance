@@ -11,6 +11,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Playwright;
+using Microsoft.AspNetCore.DataProtection;
+using PersonalFinance.Application.Accounts;
+using PersonalFinance.Api.Accounts;
 using PersonalFinance.Tests.Support;
 using PersonalFinance.Infrastructure.Accounts;
 using Xunit;
@@ -35,8 +38,11 @@ public sealed class AccountBrowserTests
         try { await Expect(page).ToHaveURLAsync(expectedUrl); }
         catch (Exception exception)
         {
-            var alerts = await page.Locator(".mud-alert").AllInnerTextsAsync();
-            throw new InvalidOperationException($"Login did not complete. Current URL: {page.Url}. Alerts: {string.Join(" | ", alerts)}. Responses: {string.Join(" | ", session.ApiResponses)}. Console: {string.Join(" | ", session.ConsoleErrors)}", exception);
+            var currentUrl = page.Url;
+            var alerts = "unavailable after navigation";
+            try { alerts = string.Join(" | ", await page.Locator(".mud-alert").AllInnerTextsAsync()); }
+            catch (Microsoft.Playwright.PlaywrightException) { }
+            throw new InvalidOperationException($"Login did not complete. Current URL: {currentUrl}. Alerts: {alerts}. Responses: {string.Join(" | ", session.ApiResponses)}. Console: {string.Join(" | ", session.ConsoleErrors)}", exception);
         }
         var sessionStatus = await page.EvaluateAsync<bool>(
             "async apiBase => (await (await fetch(apiBase + 'api/auth/session', { credentials: 'include' })).json()).authenticated",
@@ -46,6 +52,47 @@ public sealed class AccountBrowserTests
         var sessionCookie = Assert.Single(cookies, cookie => cookie.Name == "__Host-PF.Session");
         Assert.True(sessionCookie.HttpOnly);
         Assert.True(sessionCookie.Secure);
+
+        BffSession initialSession;
+        using (var scope = session.Api.Services.CreateScope())
+        {
+            var database = scope.ServiceProvider.GetRequiredService<PersonalFinance.Infrastructure.Persistence.AccountIdentityDbContext>();
+            var row = await database.BffSessions.SingleAsync(TestContext.Current.CancellationToken);
+            var protector = scope.ServiceProvider.GetRequiredService<IDataProtectionProvider>()
+                .CreateProtector("PersonalFinance.BffSession.v1");
+            initialSession = System.Text.Json.JsonSerializer.Deserialize<BffSession>(protector.Unprotect(row.ProtectedPayload))!;
+            var expired = initialSession with { AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1) };
+            row.ProtectedPayload = protector.Protect(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(expired));
+            await database.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        using (var scope = session.Api.Services.CreateScope())
+        {
+            var tokenProvider = scope.ServiceProvider.GetRequiredService<IBffSessionTokenProvider>();
+            var refreshedAccessToken = await tokenProvider.GetAccessTokenAsync(sessionCookie.Value,
+                TestContext.Current.CancellationToken);
+            Assert.False(string.IsNullOrWhiteSpace(refreshedAccessToken));
+            var store = scope.ServiceProvider.GetRequiredService<IBffSessionStore>();
+            var rotatedSession = await store.FindAsync(sessionCookie.Value, TestContext.Current.CancellationToken);
+            Assert.NotNull(rotatedSession);
+            Assert.NotEqual(initialSession.RefreshToken, rotatedSession.RefreshToken);
+            Assert.Equal(initialSession.SessionExpiresAt, rotatedSession.SessionExpiresAt);
+            var replay = await scope.ServiceProvider.GetRequiredService<IBffTokenRefresher>()
+                .RefreshAsync(initialSession.RefreshToken!, TestContext.Current.CancellationToken);
+            Assert.True(replay is null, "A redeemed refresh token must be rejected.");
+
+            var handler = new CapturingAuthorizationHandler();
+            using var resourceHttpClient = new HttpClient(handler) { BaseAddress = new Uri("https://synthetic-resource.example.test/") };
+            var resourceClient = new BffProtectedResourceClient(resourceHttpClient, tokenProvider);
+            using var resourceResponse = await resourceClient.SendAsync(sessionCookie.Value,
+                new HttpRequestMessage(HttpMethod.Get, "protected"), TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, resourceResponse?.StatusCode);
+            Assert.Equal("Bearer", handler.Authorization?.Scheme);
+            Assert.Equal(refreshedAccessToken, handler.Authorization?.Parameter);
+        }
+
+        var browserCookiesAfterRefresh = await page.Context.CookiesAsync();
+        Assert.Single(browserCookiesAfterRefresh, cookie => cookie.Name == "__Host-PF.Session");
         Assert.DoesNotContain("access_token", await page.Locator("body").InnerTextAsync(), StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("refresh_token", await page.Locator("body").InnerTextAsync(), StringComparison.OrdinalIgnoreCase);
         Assert.Empty(session.PageErrors);
@@ -140,6 +187,17 @@ public sealed class AccountBrowserTests
         var manager = scope.ServiceProvider.GetRequiredService<UserManager<AccountIdentityUser>>();
         var user = new AccountIdentityUser { UserName = email, Email = email, EmailConfirmed = true };
         Assert.True((await manager.CreateAsync(user, "abcdefghijkl")).Succeeded);
+    }
+
+    private sealed class CapturingAuthorizationHandler : HttpMessageHandler
+    {
+        public System.Net.Http.Headers.AuthenticationHeaderValue? Authorization { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Authorization = request.Headers.Authorization;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }
     }
 }
 

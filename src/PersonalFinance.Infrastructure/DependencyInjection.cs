@@ -49,6 +49,7 @@ public static class DependencyInjection
         services.Configure<DataProtectionTokenProviderOptions>(options =>
             options.TokenLifespan = TimeSpan.FromHours(24));
         services.AddScoped<IAccountIdentity, IdentityAccountIdentity>();
+        services.AddScoped<IAccountSessionEligibility, IdentityAccountSessionEligibility>();
         services.AddScoped<IBffSessionStore, ProtectedBffSessionStore>();
         services.AddSingleton<ITicketStore, ProtectedAuthenticationTicketStore>();
         services.AddOptions<CookieAuthenticationOptions>(IdentityConstants.ApplicationScheme)

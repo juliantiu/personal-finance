@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using PersonalFinance.Api.Accounts;
 using PersonalFinance.Application;
 using PersonalFinance.Application.Accounts.RegisterAccount;
+using PersonalFinance.Application.Accounts;
 using PersonalFinance.Application.Common;
 using PersonalFinance.Infrastructure;
 using PersonalFinance.Infrastructure.Email;
@@ -64,6 +65,10 @@ if (accountEndpointsEnabled)
     builder.Services.AddInfrastructure(builder.Configuration, isDevelopment);
     if (openIddictEnabled)
     {
+        builder.Services.AddScoped<IBffSessionTokenProvider, BffSessionTokenProvider>();
+        builder.Services.AddScoped<IBffTokenRefresher, OpenIddictBffTokenRefresher>();
+        builder.Services.AddHttpClient<IBffProtectedResourceClient, BffProtectedResourceClient>(client =>
+            client.BaseAddress = new Uri(builder.Configuration["Authentication:OpenIddict:Issuer"]!, UriKind.Absolute));
         builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme)
             .AddCookie(IdentityConstants.ApplicationScheme, options =>
             {
@@ -83,6 +88,7 @@ if (accountEndpointsEnabled)
                     ?? throw new InvalidOperationException("The OpenIddict issuer is required.");
                 var clientId = builder.Configuration["Authentication:OpenIddict:ClientId"] ?? "personal-finance-client";
                 options.AllowAuthorizationCodeFlow();
+                options.AllowRefreshTokenFlow();
                 options.SetRedirectionEndpointUris("/api/auth/callback");
                 options.AddEphemeralEncryptionKey().AddEphemeralSigningKey();
                 options.UseAspNetCore().EnableRedirectionEndpointPassthrough();
@@ -106,6 +112,7 @@ if (accountEndpointsEnabled)
                 options.AllowAuthorizationCodeFlow()
                     .AllowRefreshTokenFlow()
                     .RequireProofKeyForCodeExchange();
+                options.SetRefreshTokenReuseLeeway(TimeSpan.Zero);
                 options.RegisterScopes(Scopes.OpenId, Scopes.Email, Scopes.Profile, Scopes.OfflineAccess, "personal_finance_api");
                 options.SetAccessTokenLifetime(TimeSpan.FromMinutes(15));
                 options.SetRefreshTokenLifetime(TimeSpan.FromDays(7));
