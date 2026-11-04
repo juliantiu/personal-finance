@@ -27,6 +27,48 @@ namespace PersonalFinance.EndToEndTests;
 public sealed class AccountBrowserTests
 {
     [Fact]
+    public async Task Https_session_survives_restart_with_persisted_credentials_and_rejects_forged_requests()
+    {
+        await using var session = await BrowserSession.StartAsync(services =>
+            services.AddSingleton<IStartupFilter, SyntheticResourceStartupFilter>());
+        await AddConfirmedUser(session.Api, "restart-browser@example.test");
+        await Login(session.Page, session.ClientUrl, "restart-browser@example.test");
+        var cookie = Assert.Single(await session.Page.Context.CookiesAsync(), value => value.Name == "__Host-PF.Session");
+        Assert.True(cookie.HttpOnly && cookie.Secure);
+        Assert.Equal(-1, cookie.Expires);
+        Assert.Equal(SameSiteAttribute.None, cookie.SameSite);
+        Assert.StartsWith("https://", session.ApiUrl);
+        var before = await ReadSession(session.Api, cookie.Value);
+        Assert.Equal(HttpStatusCode.NoContent, await ResourceStatus(session.Api, before.AccessToken));
+
+        var forged = await session.Page.EvaluateAsync<int>("async api => (await fetch(api + 'api/auth/sign-out', { method: 'POST', credentials: 'include' })).status", session.ApiUrl);
+        Assert.Equal(400, forged);
+        Assert.True(await BrowserAuthenticated(session.Page, session.ApiUrl));
+        var deniedPage = await session.Page.Context.NewPageAsync();
+        await deniedPage.GotoAsync(session.ClientUrl.Replace("127.0.0.1", "localhost", StringComparison.Ordinal) + "/index.html");
+        var denied = await deniedPage.EvaluateAsync<bool>("async api => { try { await fetch(api + 'api/auth/session', { credentials: 'include' }); return false; } catch { return true; } }", session.ApiUrl);
+        Assert.True(denied);
+        await deniedPage.CloseAsync();
+
+        await session.RestartApiAsync();
+        Assert.True(await BrowserAuthenticated(session.Page, session.ApiUrl));
+        Assert.Equal(HttpStatusCode.NoContent, await ResourceStatus(session.Api, before.AccessToken));
+        await ExpireAccessToken(session.Api, cookie.Value);
+        using (var scope = session.Api.Services.CreateScope())
+            Assert.NotNull(await scope.ServiceProvider.GetRequiredService<IBffSessionTokenProvider>()
+                .GetAccessTokenAsync(cookie.Value, TestContext.Current.CancellationToken));
+        var after = await ReadSession(session.Api, cookie.Value);
+        Assert.NotEqual(before.RefreshToken, after.RefreshToken);
+        Assert.Equal(before.SessionExpiresAt, after.SessionExpiresAt);
+        await session.Page.ReloadAsync();
+        await Expect(session.Page.GetByRole(AriaRole.Button, new() { Name = "Sign out", Exact = true })).ToBeVisibleAsync();
+        await session.Page.GetByRole(AriaRole.Button, new() { Name = "Sign out", Exact = true }).ClickAsync();
+        await Expect(session.Page.Locator(".mud-alert")).ToContainTextAsync("You have been signed out.");
+        Assert.Equal(HttpStatusCode.Unauthorized, await ResourceStatus(session.Api, after.AccessToken));
+        Assert.Empty(session.PageErrors);
+    }
+
+    [Fact]
     public async Task Signing_out_revokes_rotated_tokens_and_preserves_a_second_browser_session()
     {
         await using var browser = await BrowserSession.StartAsync(services =>
@@ -35,7 +77,7 @@ public sealed class AccountBrowserTests
         var page = browser.Page;
         await Login(page, browser.ClientUrl, "signout-browser@example.test");
         var firstCookie = Assert.Single(await page.Context.CookiesAsync(), cookie => cookie.Name == "__Host-PF.Session");
-        await using var secondContext = await page.Context.Browser!.NewContextAsync();
+        await using var secondContext = await page.Context.Browser!.NewContextAsync(new() { IgnoreHTTPSErrors = true });
         var secondPage = await secondContext.NewPageAsync();
         await Login(secondPage, browser.ClientUrl, "signout-browser@example.test");
         var secondCookie = Assert.Single(await secondContext.CookiesAsync(), cookie => cookie.Name == "__Host-PF.Session");
@@ -109,7 +151,7 @@ public sealed class AccountBrowserTests
         try { await Expect(page).ToHaveURLAsync(expectedUrl); }
         catch (Exception exception)
         {
-            var currentUrl = page.Url;
+            var currentUrl = new Uri(page.Url).GetLeftPart(UriPartial.Path);
             var alerts = "unavailable after navigation";
             try { alerts = string.Join(" | ", await page.Locator(".mud-alert").AllInnerTextsAsync()); }
             catch (Microsoft.Playwright.PlaywrightException) { }
@@ -288,7 +330,13 @@ public sealed class AccountBrowserTests
 
     private static async Task<HttpStatusCode> ResourceStatus(AccountTestHost host, string accessToken)
     {
-        using var client = host.CreateClient();
+        using var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = (request, certificate, _, errors) =>
+                errors == System.Net.Security.SslPolicyErrors.None || request.RequestUri?.IsLoopback == true &&
+                certificate?.Thumbprint == host.HttpsCertificateThumbprint
+        };
+        using var client = new HttpClient(handler) { BaseAddress = new Uri(host.Issuer) };
         using var request = new HttpRequestMessage(HttpMethod.Get, "/synthetic/protected");
         request.Headers.Authorization = new("Bearer", accessToken);
         using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
@@ -320,6 +368,9 @@ internal sealed class BrowserSession : IAsyncDisposable
     private WebApplication? client;
     private IPlaywright? playwright;
     private IBrowser? browser;
+    private TestKeyMaterial? keys;
+    private Action<IServiceCollection>? configureServices;
+    private int apiPort;
     public AccountTestHost Api { get; private set; } = null!;
     public IPage Page { get; private set; } = null!;
     public string ClientUrl { get; private set; } = "";
@@ -330,7 +381,7 @@ internal sealed class BrowserSession : IAsyncDisposable
 
     public static async Task<BrowserSession> StartAsync(Action<IServiceCollection>? configure = null)
     {
-        var session = new BrowserSession();
+        var session = new BrowserSession { keys = new TestKeyMaterial(), configureServices = configure };
         try
         {
             var root = new DirectoryInfo(AppContext.BaseDirectory);
@@ -340,9 +391,10 @@ internal sealed class BrowserSession : IAsyncDisposable
                     "src", "PersonalFinance.Client", "bin", "Release", "net10.0", "publish", "wwwroot");
             if (!File.Exists(Path.Combine(webRoot, "index.html")))
                 throw new InvalidOperationException("Publish the client before browser tests: dotnet publish src/PersonalFinance.Client -c Release");
-            var builder = WebApplication.CreateBuilder(new WebApplicationOptions { WebRootPath = webRoot });
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions { WebRootPath = webRoot, EnvironmentName = "Development" });
             builder.Logging.ClearProviders();
-            builder.WebHost.UseUrls($"http://127.0.0.1:{ReservePort()}");
+            builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0,
+                listener => listener.UseHttps(session.keys.HttpsCertificate)));
             session.client = builder.Build();
             string apiUrl = "";
             // Serve test configuration without changing the published client artifact.
@@ -359,26 +411,22 @@ internal sealed class BrowserSession : IAsyncDisposable
             await session.client.StartAsync();
             session.ClientUrl = session.client.Services.GetRequiredService<IServer>()
                 .Features.Get<IServerAddressesFeature>()!.Addresses.Single().TrimEnd('/');
-            var apiPort = ReservePort();
-            session.Api = new AccountTestHost(session.ClientUrl) { Issuer = $"http://127.0.0.1:{apiPort}/", ConfigureAdditionalServices = configure };
-            session.Api.UseKestrel(apiPort);
+            session.apiPort = ReservePort();
+            session.Api = session.CreateApi();
             using var http = session.Api.CreateClient();
             apiUrl = http.BaseAddress!.ToString();
             session.ApiUrl = apiUrl;
             await session.Api.MigrateAsync();
             session.playwright = await Playwright.CreateAsync();
-            session.browser = await session.playwright.Chromium.LaunchAsync(new()
-            {
-                Headless = true,
-                ExecutablePath = @"C:\Program Files\Google\Chrome\Application\chrome.exe"
-            });
-            session.Page = await session.browser.NewPageAsync();
+            session.browser = await LaunchBrowserAsync(session.playwright);
+            var context = await session.browser.NewContextAsync(new() { IgnoreHTTPSErrors = true });
+            session.Page = await context.NewPageAsync();
             session.Page.SetDefaultTimeout(15000);
             session.Page.PageError += (_, error) => session.PageErrors.Add(error);
             session.Page.Response += (_, response) =>
             {
                 if (response.Url.Contains("/api/", StringComparison.Ordinal))
-                    session.ApiResponses.Add($"{(int)response.Status} {response.Url}");
+                    session.ApiResponses.Add($"{(int)response.Status} {new Uri(response.Url).GetLeftPart(UriPartial.Path)}");
             };
             session.Page.Console += (_, message) => { if (message.Type == "error") session.ConsoleErrors.Add(message.Text); };
             // Fail with startup diagnostics before entering any account data.
@@ -395,6 +443,61 @@ internal sealed class BrowserSession : IAsyncDisposable
         catch { await session.DisposeAsync(); throw; }
     }
 
+    private AccountTestHost CreateApi(string? databaseName = null)
+    {
+        var host = new AccountTestHost(ClientUrl)
+        {
+            DatabaseName = databaseName ?? "PersonalFinance_UC001_Test_" + Guid.NewGuid().ToString("N"),
+            Issuer = $"https://127.0.0.1:{apiPort}/",
+            UsePersistentKeys = true,
+            UseSecureAntiforgery = true,
+            HttpsCertificateThumbprint = keys!.HttpsCertificate.Thumbprint,
+            Settings = keys!.Settings,
+            ConfigureAdditionalServices = services =>
+            {
+                services.AddOpenIddict().AddClient(options => options.UseSystemNetHttp().ConfigureHttpClientHandler(handler =>
+                    handler.ServerCertificateCustomValidationCallback = (request, certificate, _, errors) =>
+                        errors == System.Net.Security.SslPolicyErrors.None ||
+                        request.RequestUri?.IsLoopback == true && certificate?.Thumbprint == keys.HttpsCertificate.Thumbprint));
+                configureServices?.Invoke(services);
+            }
+        };
+        host.UseKestrel(options => options.Listen(IPAddress.Loopback, apiPort, listener => listener.UseHttps(keys.HttpsCertificate)));
+        return host;
+    }
+
+    public async Task RestartApiAsync()
+    {
+        var databaseName = Api.DatabaseName;
+        Api.DeleteDatabaseOnDispose = false;
+        await Api.DisposeAsync();
+        Api = CreateApi(databaseName);
+        using var http = Api.CreateClient();
+        Assert.Equal(ApiUrl, http.BaseAddress!.ToString());
+        await Api.MigrateAsync();
+    }
+
+    private static Task<IBrowser> LaunchBrowserAsync(IPlaywright playwright)
+    {
+        var browser = Environment.GetEnvironmentVariable("PERSONAL_FINANCE_TEST_BROWSER") ?? "chrome";
+        var options = new BrowserTypeLaunchOptions { Headless = true };
+        switch (browser.ToLowerInvariant())
+        {
+            case "chrome":
+            case "edge":
+                options.Channel = browser == "edge" ? "msedge" : "chrome";
+                return playwright.Chromium.LaunchAsync(options);
+            case "firefox": return playwright.Firefox.LaunchAsync(options);
+            case "webkit": return playwright.Webkit.LaunchAsync(options);
+            case "brave":
+                options.ExecutablePath = Environment.GetEnvironmentVariable("PERSONAL_FINANCE_BRAVE_PATH");
+                if (string.IsNullOrWhiteSpace(options.ExecutablePath) || !File.Exists(options.ExecutablePath))
+                    throw new InvalidOperationException("Set PERSONAL_FINANCE_BRAVE_PATH to the actual Brave executable; Chromium is not a Brave substitute.");
+                return playwright.Chromium.LaunchAsync(options);
+            default: throw new InvalidOperationException("PERSONAL_FINANCE_TEST_BROWSER must be chrome, edge, firefox, webkit, or brave.");
+        }
+    }
+
     private static int ReservePort()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -409,7 +512,11 @@ internal sealed class BrowserSession : IAsyncDisposable
         {
             playwright?.Dispose();
             try { if (Api is not null) await Api.DisposeAsync(); }
-            finally { if (client is not null) await client.DisposeAsync(); }
+            finally
+            {
+                try { if (client is not null) await client.DisposeAsync(); }
+                finally { keys?.Dispose(); }
+            }
         }
     }
 }

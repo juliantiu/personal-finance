@@ -61,11 +61,17 @@ var hasIdentityDatabase = !string.IsNullOrWhiteSpace(builder.Configuration.GetCo
 var hasConfiguredEmailSender = EmailSenderConfiguration.IsConfigured(builder.Configuration, isDevelopment);
 var accountEndpointsEnabled = AccountEndpointAvailability.IsEnabled(hasIdentityDatabase, hasConfiguredEmailSender);
 var openIddictEnabled = builder.Configuration.GetValue<bool>("Authentication:OpenIddict:Enabled");
+using var authenticationConfiguration = openIddictEnabled
+    ? AuthenticationConfiguration.Load(builder.Configuration, isDevelopment)
+    : null;
+if (openIddictEnabled && !accountEndpointsEnabled && !isDevelopment)
+    throw new InvalidOperationException("Authentication requires the Identity connection string and backend email settings.");
 if (accountEndpointsEnabled)
 {
     builder.Services.AddInfrastructure(builder.Configuration, isDevelopment);
     if (openIddictEnabled)
     {
+        authenticationConfiguration!.ConfigureDataProtection(builder.Services);
         builder.Services.AddScoped<IBffSessionTokenProvider, BffSessionTokenProvider>();
         builder.Services.AddScoped<IBffTokenRefresher, OpenIddictBffTokenRefresher>();
         builder.Services.AddScoped<IBffGrantRevoker, OpenIddictBffGrantRevoker>();
@@ -94,7 +100,11 @@ if (accountEndpointsEnabled)
                 options.AllowAuthorizationCodeFlow();
                 options.AllowRefreshTokenFlow();
                 options.SetRedirectionEndpointUris("/api/auth/callback");
-                options.AddEphemeralEncryptionKey().AddEphemeralSigningKey();
+                if (authenticationConfiguration!.Persistent)
+                    options.AddEncryptionCertificate(authenticationConfiguration.Certificate("ClientEncryption"))
+                        .AddSigningCertificate(authenticationConfiguration.Certificate("ClientSigning"));
+                else
+                    options.AddEphemeralEncryptionKey().AddEphemeralSigningKey();
                 options.UseAspNetCore().EnableRedirectionEndpointPassthrough();
                 if (isDevelopment)
                     options.UseAspNetCore().DisableTransportSecurityRequirement();
@@ -125,7 +135,12 @@ if (accountEndpointsEnabled)
                 if (Uri.TryCreate(issuer, UriKind.Absolute, out var issuerUri))
                     options.SetIssuer(issuerUri);
 
-                if (isDevelopment)
+                if (authenticationConfiguration!.Persistent)
+                {
+                    options.AddEncryptionCertificate(authenticationConfiguration.Certificate("ServerEncryption"))
+                        .AddSigningCertificate(authenticationConfiguration.Certificate("ServerSigning"));
+                }
+                else if (isDevelopment)
                 {
                     options.AddEphemeralEncryptionKey()
                         .AddEphemeralSigningKey();

@@ -16,6 +16,7 @@
     <PackageReference Include="Microsoft.Playwright" Version="1.56.0" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <Compile Include="..\Shared\AccountTestHost.cs" Link="Support\AccountTestHost.cs" />
+    <Compile Include="..\Shared\TestKeyMaterial.cs" Link="Support\TestKeyMaterial.cs" />
   </ItemGroup>
 
 </Project>

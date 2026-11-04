@@ -1,0 +1,25 @@
+{
+  "Authentication": {
+    "OpenIddict": {
+      "Enabled": true,
+      "Issuer": "https://api.example.invalid/",
+      "ClientOrigin": "https://client.example.invalid",
+      "ClientId": "personal-finance-client"
+    },
+    "KeyPersistence": {
+      "Enabled": true,
+      "ApplicationName": "PersonalFinance",
+      "KeysPath": "C:/private/personal-finance/key-ring"
+    },
+    "Certificates": {
+      "ServerSigning": { "Path": "C:/private/personal-finance/server-signing.pfx" },
+      "ServerEncryption": { "Path": "C:/private/personal-finance/server-encryption.pfx" },
+      "ClientSigning": { "Path": "C:/private/personal-finance/client-signing.pfx" },
+      "ClientEncryption": { "Path": "C:/private/personal-finance/client-encryption.pfx" },
+      "DataProtection": { "Path": "C:/private/personal-finance/data-protection.pfx" }
+    }
+  },
+  "Cors": {
+    "AllowedOrigins": [ "https://client.example.invalid" ]
+  }
+}

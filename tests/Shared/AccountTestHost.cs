@@ -16,7 +16,13 @@ namespace PersonalFinance.Tests.Support;
 // Linked into the integration and browser projects; never uses developer connection strings.
 public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173") : WebApplicationFactory<Program>
 {
-    private readonly string databaseName = "PersonalFinance_UC001_Test_" + Guid.NewGuid().ToString("N");
+    private bool databaseUsed;
+    public string DatabaseName { get; init; } = "PersonalFinance_UC001_Test_" + Guid.NewGuid().ToString("N");
+    public bool DeleteDatabaseOnDispose { get; set; } = true;
+    public bool UsePersistentKeys { get; init; }
+    public bool UseSecureAntiforgery { get; init; }
+    public string? HttpsCertificateThumbprint { get; init; }
+    public Dictionary<string, string?> Settings { get; init; } = [];
     public CapturedEmailTransport Email { get; } = new();
     public bool MissingDatabase { get; init; }
     public bool MissingEmail { get; init; }
@@ -28,7 +34,7 @@ public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173
     {
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:Identity", MissingDatabase ? "" :
-            $"Server=(localdb)\\MSSQLLocalDB;Database={databaseName};Integrated Security=true;TrustServerCertificate=true;Connect Timeout=60");
+            $"Server=(localdb)\\MSSQLLocalDB;Database={DatabaseName};Integrated Security=true;TrustServerCertificate=true;Connect Timeout=60");
         builder.UseSetting("Email:ClientBaseUrl", clientOrigin + "/");
         builder.UseSetting("Email:SenderAddress", MissingEmail ? "" : "sender@example.test");
         builder.UseSetting("Email:Smtp4Dev:Host", "127.0.0.1");
@@ -37,28 +43,42 @@ public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173
         builder.UseSetting("Email:Smtp4Dev:Username", "");
         builder.UseSetting("Email:Smtp4Dev:Password", "");
         builder.UseSetting("Cors:AllowedOrigins:0", clientOrigin);
+        builder.UseSetting("Cors:AllowedOrigins:1", clientOrigin);
         builder.UseSetting("Authentication:OpenIddict:Issuer", Issuer);
+        builder.UseSetting("Authentication:OpenIddict:ClientOrigin", clientOrigin);
         builder.UseSetting("Authentication:OpenIddict:Enabled", OpenIddictEnabled.ToString());
-        builder.UseSetting("Authentication:Antiforgery:SameSite", "Lax");
-        builder.UseSetting("Authentication:Antiforgery:SecureCookie", "false");
+        builder.UseSetting("Authentication:KeyPersistence:Enabled", UsePersistentKeys.ToString());
+        builder.UseSetting("Authentication:KeyPersistence:KeysPath", "");
+        builder.UseSetting("Authentication:KeyPersistence:ApplicationName", "");
+        foreach (var purpose in new[] { "ServerSigning", "ServerEncryption", "ClientSigning", "ClientEncryption", "DataProtection" })
+        {
+            builder.UseSetting($"Authentication:Certificates:{purpose}:Path", "");
+            builder.UseSetting($"Authentication:Certificates:{purpose}:Password", "");
+        }
+        builder.UseSetting("Authentication:Antiforgery:SameSite", UseSecureAntiforgery ? "None" : "Lax");
+        builder.UseSetting("Authentication:Antiforgery:SecureCookie", UseSecureAntiforgery ? "true" : "false");
+        foreach (var setting in Settings) builder.UseSetting(setting.Key, setting.Value);
         builder.ConfigureLogging(logging => logging.ClearProviders());
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<IEmailTransport>();
             services.AddSingleton<IEmailTransport>(Email);
-            services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+            if (!UsePersistentKeys)
+                services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
             ConfigureAdditionalServices?.Invoke(services);
         });
     }
 
     public async Task MigrateAsync()
     {
+        databaseUsed = true;
         using var scope = Services.CreateScope();
         await scope.ServiceProvider.GetRequiredService<AccountIdentityDbContext>().Database.MigrateAsync();
     }
 
     public async Task<T> WithDatabaseAsync<T>(Func<AccountIdentityDbContext, Task<T>> action)
     {
+        databaseUsed = true;
         using var scope = Services.CreateScope();
         return await action(scope.ServiceProvider.GetRequiredService<AccountIdentityDbContext>());
     }
@@ -67,11 +87,12 @@ public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173
     {
         try
         {
-            if (!MissingDatabase && !MissingEmail)
+            if (databaseUsed && DeleteDatabaseOnDispose && !MissingDatabase && !MissingEmail)
                 await WithDatabaseAsync(async db =>
                 {
                     // Only the unique database owned by this fixture may be removed.
-                    if (db.Database.GetDbConnection().Database != databaseName)
+                    if (!DatabaseName.StartsWith("PersonalFinance_UC001_Test_", StringComparison.Ordinal) ||
+                        db.Database.GetDbConnection().Database != DatabaseName)
                         throw new InvalidOperationException("Refusing to delete a database not owned by this test.");
                     return await db.Database.EnsureDeletedAsync();
                 });

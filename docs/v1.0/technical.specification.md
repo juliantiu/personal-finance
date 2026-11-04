@@ -201,6 +201,8 @@ The privacy and authorization requirements below implement confirmed scope. Nume
 
 Confirmed target services are listed above; no provisioning is authorized by this specification workflow. Static Web Apps' integrated App Service API proxy requires Standard; the chosen Free plan instead uses direct browser-to-API calls.
 
+UC-020 readiness update (4 November 2026): the user deferred provisioning and actual deployed-origin verification. Configurable authentication origins, distinct PFX credentials, and an encrypted persistent Data Protection key ring are implemented and exercised in Development. See [UC-020 configuration and verification](use_cases/UC-020_sign-in-and-sign-out/deployment-and-verification.md). Chrome, Edge, WebKit, and Brave passed local HTTPS coverage; actual Safari is deferred, and the selected Playwright Firefox build cannot launch on this Windows machine. The user chose to retain the dependency and perform Firefox verification on another compatible machine. None of this establishes feasibility of the actual Azure default-domain cookie boundary or replaces the production release gates below.
+
 As researched on 20 October 2026:
 
 - App Service F1 has a 60 CPU-minute daily quota; this is CPU time, not a promise of one wall-clock hour of availability.

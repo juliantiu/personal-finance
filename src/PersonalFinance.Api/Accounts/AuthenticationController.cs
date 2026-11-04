@@ -168,11 +168,9 @@ public sealed class AuthenticationController(
     private async Task EnsureClientRegisteredAsync(CancellationToken cancellationToken)
     {
         var clientId = configuration["Authentication:OpenIddict:ClientId"] ?? "personal-finance-client";
-        if (await applicationManager.FindByClientIdAsync(clientId, cancellationToken) is not null)
-            return;
-
         var issuer = new Uri(configuration["Authentication:OpenIddict:Issuer"]!, UriKind.Absolute);
-        await applicationManager.CreateAsync(new OpenIddictApplicationDescriptor
+        var application = await applicationManager.FindByClientIdAsync(clientId, cancellationToken);
+        var descriptor = new OpenIddictApplicationDescriptor
         {
             ClientId = clientId,
             DisplayName = "Personal Finance Blazor client",
@@ -192,7 +190,15 @@ public sealed class AuthenticationController(
                 OpenIddictConstants.Permissions.Prefixes.Scope + "personal_finance_api"
             },
             Requirements = { OpenIddictConstants.Requirements.Features.ProofKeyForCodeExchange }
-        });
+        };
+        if (application is null)
+            await applicationManager.CreateAsync(descriptor, cancellationToken);
+        else
+        {
+            var redirects = await applicationManager.GetRedirectUrisAsync(application, cancellationToken);
+            if (redirects.Length != 1 || redirects[0] != new Uri(issuer, "api/auth/callback").AbsoluteUri)
+                await applicationManager.UpdateAsync(application, descriptor, cancellationToken);
+        }
     }
 
     // Comment ID: METHOD-026. Allows only a same-origin absolute path before carrying it through the authorization redirect.
