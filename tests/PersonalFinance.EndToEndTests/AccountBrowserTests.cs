@@ -137,6 +137,35 @@ public sealed class AccountBrowserTests
     }
 
     [Fact]
+    public async Task Cross_site_client_can_sign_in_again_after_sign_out()
+    {
+        await using var browser = await BrowserSession.StartAsync(crossSiteClientOrigin: true);
+        await AddConfirmedUser(browser.Api, "cross-site-login@example.test");
+
+        await Login(browser.Page, browser.ClientUrl, "cross-site-login@example.test");
+        Assert.Contains(await browser.Page.Context.CookiesAsync(), cookie => cookie.Name == "__Host-PF.Session");
+        Assert.True(await BrowserAuthenticated(browser.Page, browser.ApiUrl));
+        var signOutStatus = await browser.Page.EvaluateAsync<int>("""
+            async api => {
+                const tokenResponse = await fetch(api + 'api/auth/antiforgery', { credentials: 'include' });
+                const { requestToken } = await tokenResponse.json();
+                const response = await fetch(api + 'api/auth/sign-out', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'X-CSRF-TOKEN': requestToken }
+                });
+                return response.status;
+            }
+            """, browser.ApiUrl);
+        Assert.Equal((int)HttpStatusCode.NoContent, signOutStatus);
+        Assert.False(await BrowserAuthenticated(browser.Page, browser.ApiUrl));
+
+        await Login(browser.Page, browser.ClientUrl, "cross-site-login@example.test");
+        Assert.True(await BrowserAuthenticated(browser.Page, browser.ApiUrl));
+        Assert.Empty(browser.PageErrors);
+    }
+
+    [Fact]
     public async Task Verified_login_completes_PKCE_without_exposing_tokens_and_returns_to_local_page()
     {
         await using var session = await BrowserSession.StartAsync();
@@ -370,6 +399,7 @@ internal sealed class BrowserSession : IAsyncDisposable
     private IBrowser? browser;
     private TestKeyMaterial? keys;
     private Action<IServiceCollection>? configureServices;
+    private bool crossSiteClientOrigin;
     private int apiPort;
     public AccountTestHost Api { get; private set; } = null!;
     public IPage Page { get; private set; } = null!;
@@ -379,9 +409,16 @@ internal sealed class BrowserSession : IAsyncDisposable
     public List<string> ApiResponses { get; } = [];
     public List<string> ConsoleErrors { get; } = [];
 
-    public static async Task<BrowserSession> StartAsync(Action<IServiceCollection>? configure = null)
+    public static async Task<BrowserSession> StartAsync(
+        Action<IServiceCollection>? configure = null,
+        bool crossSiteClientOrigin = false)
     {
-        var session = new BrowserSession { keys = new TestKeyMaterial(), configureServices = configure };
+        var session = new BrowserSession
+        {
+            keys = new TestKeyMaterial(),
+            configureServices = configure,
+            crossSiteClientOrigin = crossSiteClientOrigin
+        };
         try
         {
             var root = new DirectoryInfo(AppContext.BaseDirectory);
@@ -393,8 +430,11 @@ internal sealed class BrowserSession : IAsyncDisposable
                 throw new InvalidOperationException("Publish the client before browser tests: dotnet publish src/PersonalFinance.Client -c Release");
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { WebRootPath = webRoot, EnvironmentName = "Development" });
             builder.Logging.ClearProviders();
-            builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0,
-                listener => listener.UseHttps(session.keys.HttpsCertificate)));
+            builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0, listener =>
+            {
+                if (!crossSiteClientOrigin)
+                    listener.UseHttps(session.keys.HttpsCertificate);
+            }));
             session.client = builder.Build();
             string apiUrl = "";
             // Serve test configuration without changing the published client artifact.
@@ -409,12 +449,16 @@ internal sealed class BrowserSession : IAsyncDisposable
             session.client.UseStaticFiles(new StaticFileOptions { ContentTypeProvider = contentTypes });
             session.client.MapFallbackToFile("index.html");
             await session.client.StartAsync();
-            session.ClientUrl = session.client.Services.GetRequiredService<IServer>()
-                .Features.Get<IServerAddressesFeature>()!.Addresses.Single().TrimEnd('/');
+            var clientUrl = new Uri(session.client.Services.GetRequiredService<IServer>()
+                .Features.Get<IServerAddressesFeature>()!.Addresses.Single());
+            if (crossSiteClientOrigin)
+                session.ClientUrl = new UriBuilder(clientUrl) { Scheme = "http", Host = "localhost" }.Uri.ToString().TrimEnd('/');
+            else
+                session.ClientUrl = clientUrl.ToString().TrimEnd('/');
             session.apiPort = ReservePort();
             session.Api = session.CreateApi();
             using var http = session.Api.CreateClient();
-            apiUrl = http.BaseAddress!.ToString();
+            apiUrl = session.ConfigureApiOrigin(http.BaseAddress!).ToString();
             session.ApiUrl = apiUrl;
             await session.Api.MigrateAsync();
             session.playwright = await Playwright.CreateAsync();
@@ -448,7 +492,7 @@ internal sealed class BrowserSession : IAsyncDisposable
         var host = new AccountTestHost(ClientUrl)
         {
             DatabaseName = databaseName ?? "PersonalFinance_UC001_Test_" + Guid.NewGuid().ToString("N"),
-            Issuer = $"https://127.0.0.1:{apiPort}/",
+            Issuer = $"https://{(crossSiteClientOrigin ? "localhost" : "127.0.0.1")}:{apiPort}/",
             UsePersistentKeys = true,
             UseSecureAntiforgery = true,
             HttpsCertificateThumbprint = keys!.HttpsCertificate.Thumbprint,
@@ -466,6 +510,10 @@ internal sealed class BrowserSession : IAsyncDisposable
         return host;
     }
 
+    private Uri ConfigureApiOrigin(Uri apiOrigin) => crossSiteClientOrigin
+        ? new UriBuilder(apiOrigin) { Host = "localhost" }.Uri
+        : apiOrigin;
+
     public async Task RestartApiAsync()
     {
         var databaseName = Api.DatabaseName;
@@ -473,7 +521,7 @@ internal sealed class BrowserSession : IAsyncDisposable
         await Api.DisposeAsync();
         Api = CreateApi(databaseName);
         using var http = Api.CreateClient();
-        Assert.Equal(ApiUrl, http.BaseAddress!.ToString());
+        Assert.Equal(ApiUrl, ConfigureApiOrigin(http.BaseAddress!).ToString());
         await Api.MigrateAsync();
     }
 
