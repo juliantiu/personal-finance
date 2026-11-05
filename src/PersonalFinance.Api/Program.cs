@@ -6,6 +6,8 @@ using PersonalFinance.Application;
 using PersonalFinance.Application.Accounts.RegisterAccount;
 using PersonalFinance.Application.Accounts;
 using PersonalFinance.Application.Common;
+using PersonalFinance.Api.Profiles;
+using PersonalFinance.Application.Profiles;
 using PersonalFinance.Infrastructure;
 using PersonalFinance.Infrastructure.Accounts;
 using PersonalFinance.Infrastructure.Email;
@@ -69,6 +71,8 @@ if (openIddictEnabled && !accountEndpointsEnabled && !isDevelopment)
 if (accountEndpointsEnabled)
 {
     builder.Services.AddInfrastructure(builder.Configuration, isDevelopment);
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddScoped<ICurrentAccount, BffCurrentAccount>();
     if (openIddictEnabled)
     {
         authenticationConfiguration!.ConfigureDataProtection(builder.Services);
@@ -183,6 +187,7 @@ if (accountEndpointsEnabled && openIddictEnabled)
 {
     app.UseAuthentication();
     app.UseAuthorization();
+    app.MapProfileEndpoints();
 }
 
 if (accountEndpointsEnabled)
