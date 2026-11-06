@@ -35,7 +35,8 @@ public sealed class ProfileListPageTests
         foreach (var text in new[] { "Home", "Shared holiday", "Family savings", "GBP", "USD", "Owner", "Editor", "View only" })
             Assert.Contains(text, page.Markup);
         Assert.DoesNotContain("You don't have any budget profiles yet.", page.Markup);
-        Assert.Equal("Create another profile", Assert.Single(page.FindAll("a[href^='/budget-profiles/']")).TextContent);
+        Assert.Equal("Create another profile", Assert.Single(page.FindAll("a[href='/budget-profiles/create']")).TextContent);
+        Assert.Equal(3, page.FindAll("ul[aria-label='Accessible budget profiles'] h2 a[href^='/budget-profiles/']").Count);
         Assert.True(handler.CredentialsIncluded);
     }
 

@@ -134,7 +134,7 @@
             if (response.StatusCode != HttpStatusCode.Created) { _uncertain = true; return; }
             var saved = await response.Content.ReadFromJsonAsync<CreatedProfileResponse>(cancellationToken: cancellationToken);
             if (saved is null || saved.Id == Guid.Empty) throw new JsonException("Missing saved profile identity.");
-            Navigation.NavigateTo("/budget-profiles");
+            Navigation.NavigateTo($"/budget-profiles/{saved.Id}");
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)

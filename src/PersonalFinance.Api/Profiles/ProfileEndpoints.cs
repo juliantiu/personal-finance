@@ -9,7 +9,32 @@ public static class ProfileEndpoints
     public static void MapProfileEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/budget-profiles", ListAsync);
+        endpoints.MapGet("/api/budget-profiles/{profileId:guid}", GetAsync);
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
+    }
+
+    // Comment ID: METHOD-143. Returns profile setup details only after the query checks the current account's ownership or grant.
+    private static async Task<IResult> GetAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            var profile = await mediator.Send(new GetAccessibleProfileQuery(profileId), cancellationToken);
+            if (profile is null) return Results.NotFound();
+            return Results.Ok(new ProfileDetailsResponse(
+                profile.Id,
+                profile.Name,
+                profile.MainCurrency,
+                profile.AdditionalCurrencies,
+                profile.Role,
+                profile.Categories.Select(category => new ProfileCategoryDetailsResponse(category.Name, category.Kind)).ToArray(),
+                profile.PaymentMethods.Select(method => new ProfilePaymentMethodDetailsResponse(method.Kind)).ToArray(),
+                profile.Tags.Select(tag => new ProfileTagDetailsResponse(tag.Name, tag.Role)).ToArray()));
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign in to access this budget profile.");
+        }
     }
 
     // Comment ID: METHOD-083. Checks the BFF account and antiforgery proof before dispatching validated atomic creation.

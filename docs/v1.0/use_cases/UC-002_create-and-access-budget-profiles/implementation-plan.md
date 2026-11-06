@@ -1,6 +1,6 @@
 # UC-002 — Create and access budget profiles — Implementation plan
 
-Status: **Plan approved; Phase 1 completed on 5 November 2026 and Phase 2 completed on 6 November 2026. Phases 3–6 have not started.** Product decisions below were confirmed by the user during planning on 5 November 2026. The user approved the concrete Phase 2 plan on 6 November 2026; later phases retain their learning checkpoints. See [Phase 1 verification](verification.md) and [Phase 2 verification](verification-phase-2.md) for observed red/green results and environment limits.
+Status: **Phases 1–3 completed by 6 November 2026; Phases 4–6 have not started.** Product decisions below were confirmed by the user during planning on 5 November 2026. The user approved the Phase 2 plan on 6 November 2026 and approved the Phase 3 plan in this session. See [Phase 1 verification](verification.md), [Phase 2 verification](verification-phase-2.md), and [Phase 3 verification](verification-phase-3.md) for observed red/green results and environment limits.
 
 ## Sources and planning baseline (before Phase 1)
 
@@ -69,11 +69,12 @@ Each numbered phase is a bounded slice of UC-002. Tests are written and run befo
    - **Checkpoint outcome:** A signed-in user can create a complete profile and see it in their list; known failures leave no partial records.
    - **Completion evidence:** Added immutable Domain setup construction, the validated Mediator creation command and atomic persistence port, `POST /api/budget-profiles` with the existing BFF/antiforgery boundary, the protected creation form, and first/another-profile links. Migration `20261106110747_AddProfileCreation` adds the four remaining setup tables and uniqueness constraints. SQL failure injection proves rollback of the whole creation. Unknown POST outcomes preserve inputs and require a list refresh before an explicit retry. Final checks: Domain **18 passed**, Application **41 passed**, Client **51 passed**, Integration **92 passed**, Chrome **8 passed** (**210 total**, no failures/skips); solution build and Release client publish succeeded. Migrations were applied only to isolated test databases. The user also exempted `src/PersonalFinance.Infrastructure/Persistence/` and its subdirectories from purpose-comment requirements. See [Phase 2 verification](verification-phase-2.md).
 
-3. **Not started — open a profile with current permissions.**
+3. **Completed 6 November 2026 — open a profile with current permissions.**
    - Implement the authorized open query, GET endpoint, landing DTO/page, and links from the list. Display saved settings/defaults and the server-resolved owner/editor/viewer role. Complete successful creation by opening the new profile.
    - Recheck access on each open request and use the agreed unavailable response. Sharing itself is not implemented; editor/viewer checks use seeded grants.
    - **Red/green:** Cover all three roles, nonexistent/unrelated IDs, no profile-detail leakage, and a grant removed between listing and opening. Component/browser checks verify deep links, post-create navigation, settings/defaults, and the generic unavailable page. Demonstrate that an account's own profile does not confer access to another profile ID.
    - **Checkpoint outcome:** A profile opens only under its current ownership/grant, and creation reaches its saved landing page.
+   - **Completion evidence:** Added a current-account detail query and single-query EF authorization/projection, a no-store GET endpoint, a protected landing page and browser-safe contract, links from the list, and post-creation navigation. Owner/editor/viewer roles, anonymous requests, missing IDs, removed grants, response detail, the generic unavailable page, deep-link reload, and browser creation/open navigation are covered. Final checks: Domain **18 passed**, Application **43 passed**, Client **53 passed**, Integration **93 passed**, focused Playwright **1 passed** (**208 total**, no failures/skips); solution build and Release client publish succeeded. No migration or schema change was needed. See [Phase 3 verification](verification-phase-3.md).
 
 4. **Not started — switching and navigation consistency.**
    - Add a clear Back to profiles/switch interaction. Reload profile data when route parameters change, cancel or ignore outdated loads, and clear previous profile content during transitions. Keep selection in the route without adding an account preference or persistent last-profile setting.
@@ -114,4 +115,4 @@ Planning verification: **No builds, tests, migrations, or application implementa
 
 The user approved this plan and authorized Phase 1 on 5 November 2026: “Approve and implement phase 1.” Implement Phase 1 only and pause at its learning checkpoint; proceeding to later phases requires the user's readiness signal.
 
-On 6 November 2026, after the concrete Phase 2 plan was presented, the user authorized it: “Go ahead and implement this plan.” The same message requested the Infrastructure persistence comment exemption now recorded in `AGENTS.md`. Phase 2 is complete; pause at its checkpoint before Phase 3.
+On 6 November 2026, after the concrete Phase 2 plan was presented, the user authorized it: “Go ahead and implement this plan.” The same message requested the Infrastructure persistence comment exemption now recorded in `AGENTS.md`. On 6 November 2026 the user approved the concrete Phase 3 plan in this session. Phase 3 is complete; pause at its checkpoint before Phase 4.

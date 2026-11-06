@@ -55,6 +55,7 @@ public static class DependencyInjection
             options.TokenLifespan = TimeSpan.FromHours(24));
         services.AddScoped<IAccountIdentity, IdentityAccountIdentity>();
         services.AddScoped<IAccessibleProfileReader, EfAccessibleProfileReader>();
+        services.AddScoped<IProfileDetailsReader, EfProfileDetailsReader>();
         services.AddScoped<IProfileCreationStore, EfProfileCreationStore>();
         services.AddScoped<IAccountSessionEligibility, IdentityAccountSessionEligibility>();
         services.AddScoped<IBffSessionStore, ProtectedBffSessionStore>();

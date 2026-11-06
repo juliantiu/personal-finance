@@ -38,7 +38,7 @@ public sealed class CreateProfilePageTests
     }
 
     [Fact]
-    public async Task Valid_submission_sends_credentials_proof_and_contract_then_returns_to_list()
+    public async Task Valid_submission_sends_credentials_proof_and_contract_then_opens_the_saved_profile()
     {
         var handler = new StubHandler();
         await using var context = CreateContext(handler);
@@ -46,7 +46,7 @@ public sealed class CreateProfilePageTests
         await Fill(page);
         await page.InvokeAsync(() => page.FindComponent<MudCheckBox<bool>>().Instance.ValueChanged.InvokeAsync(true));
         await Submit(page);
-        page.WaitForAssertion(() => Assert.Equal("http://localhost/budget-profiles", context.Services.GetRequiredService<NavigationManager>().Uri));
+        page.WaitForAssertion(() => Assert.Equal($"http://localhost/budget-profiles/{handler.CreatedId}", context.Services.GetRequiredService<NavigationManager>().Uri));
         Assert.Equal(1, handler.Posts);
         Assert.Equal(" Home ", handler.Input!.Name);
         Assert.Equal("GBP", handler.Input.MainCurrency);
@@ -194,6 +194,7 @@ public sealed class CreateProfilePageTests
         public CreateProfileRequest? Input { get; private set; }
         public bool CredentialsIncluded { get; private set; }
         public string? Proof { get; private set; }
+        public Guid CreatedId { get; } = Guid.NewGuid();
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.RequestUri!.AbsolutePath == "/api/auth/session")
@@ -218,7 +219,7 @@ public sealed class CreateProfilePageTests
             if (Failure == "antiforgery") return new(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { title = "The request could not be validated." }) };
             if (Failure == "malformed-rejection") return new(HttpStatusCode.BadRequest) { Content = new StringContent("{invalid") };
             if (Failure == "validation") return new(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { errors = new { Name = new[] { "Name rejected by server." } } }) };
-            return new(HttpStatusCode.Created) { Content = Failure == "bad-success" ? new StringContent("{invalid") : JsonContent.Create(new CreatedProfileResponse(Guid.NewGuid())) };
+            return new(HttpStatusCode.Created) { Content = Failure == "bad-success" ? new StringContent("{invalid") : JsonContent.Create(new CreatedProfileResponse(CreatedId)) };
         }
     }
 }

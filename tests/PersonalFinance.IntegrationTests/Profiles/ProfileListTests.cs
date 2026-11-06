@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
@@ -124,6 +125,89 @@ public sealed class ProfileListTests
         var updated = await client.GetFromJsonAsync<ProfileListItem[]>("/api/budget-profiles", TestContext.Current.CancellationToken);
         Assert.Equal(2, updated!.Length);
         Assert.DoesNotContain(updated, profile => profile.Id == viewedId);
+    }
+
+    [Fact]
+    public async Task Opening_a_profile_returns_current_role_settings_and_setup_defaults_only_while_access_is_current()
+    {
+        await using var host = new AccountTestHost();
+        await host.MigrateAsync();
+        var accountId = await AddAccount(host);
+        var ownerId = await AddAccount(host);
+        var profileId = Guid.NewGuid();
+        var incomeId = Guid.NewGuid();
+        var cashId = Guid.NewGuid();
+        var iouId = Guid.NewGuid();
+        await host.WithDatabaseAsync(async db =>
+        {
+            db.BudgetProfiles.Add(new BudgetProfileRecord
+            { Id = profileId, OwnerAccountId = ownerId, Name = "Shared home", MainCurrencyCode = "GBP" });
+            db.ProfileAccess.Add(new ProfileAccessRecord { ProfileId = profileId, AccountId = accountId, Role = "editor" });
+            db.ProfileCurrencies.Add(new ProfileCurrencyRecord { ProfileId = profileId, CurrencyCode = "USD" });
+            db.Categories.Add(new CategoryRecord { Id = incomeId, ProfileId = profileId, Name = "Income", Kind = "income" });
+            db.PaymentMethods.Add(new PaymentMethodRecord { Id = cashId, ProfileId = profileId, Kind = "cash" });
+            db.Tags.Add(new TagRecord { Id = iouId, ProfileId = profileId, Name = "IOU", SystemRole = "iou" });
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return true;
+        });
+        var sessionId = await CreateSession(host, accountId);
+        using var client = host.CreateClient();
+        client.DefaultRequestHeaders.Add("Cookie", "__Host-PF.Session=" + sessionId);
+
+        var listedProfiles = await client.GetFromJsonAsync<ProfileListItem[]>("/api/budget-profiles", TestContext.Current.CancellationToken);
+        Assert.Contains(listedProfiles!, value => value.Id == profileId && value.Role == "editor");
+        using var response = await client.GetAsync($"/api/budget-profiles/{profileId}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(profileId, body.RootElement.GetProperty("id").GetGuid());
+        Assert.Equal("Shared home", body.RootElement.GetProperty("name").GetString());
+        Assert.Equal("GBP", body.RootElement.GetProperty("mainCurrency").GetString());
+        Assert.Equal("editor", body.RootElement.GetProperty("role").GetString());
+        Assert.Contains("USD", body.RootElement.GetProperty("additionalCurrencies").EnumerateArray().Select(value => value.GetString()));
+        Assert.Contains(body.RootElement.GetProperty("categories").EnumerateArray(), value => value.GetProperty("kind").GetString() == "income");
+        Assert.Contains(body.RootElement.GetProperty("paymentMethods").EnumerateArray(), value => value.GetProperty("kind").GetString() == "cash");
+        Assert.Contains(body.RootElement.GetProperty("tags").EnumerateArray(), value => value.GetProperty("role").GetString() == "iou");
+
+        using (var anonymous = host.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false }))
+        using (var anonymousResponse = await anonymous.GetAsync($"/api/budget-profiles/{profileId}", TestContext.Current.CancellationToken))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, anonymousResponse.StatusCode);
+            Assert.Null(anonymousResponse.Headers.Location);
+            Assert.True(anonymousResponse.Headers.CacheControl?.NoStore);
+        }
+
+        await host.WithDatabaseAsync(async db =>
+        {
+            await db.ProfileAccess.Where(value => value.ProfileId == profileId)
+                .ExecuteUpdateAsync(update => update.SetProperty(value => value.Role, "view_only"), TestContext.Current.CancellationToken);
+            return true;
+        });
+        using var viewer = await client.GetAsync($"/api/budget-profiles/{profileId}", TestContext.Current.CancellationToken);
+        using var viewerBody = JsonDocument.Parse(await viewer.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("view_only", viewerBody.RootElement.GetProperty("role").GetString());
+
+        var ownedProfileId = Guid.NewGuid();
+        await host.WithDatabaseAsync(async db =>
+        {
+            db.BudgetProfiles.Add(new BudgetProfileRecord
+            { Id = ownedProfileId, OwnerAccountId = accountId, Name = "Owned profile", MainCurrencyCode = "USD" });
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return true;
+        });
+        using var owner = await client.GetAsync($"/api/budget-profiles/{ownedProfileId}", TestContext.Current.CancellationToken);
+        using var ownerBody = JsonDocument.Parse(await owner.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal("owner", ownerBody.RootElement.GetProperty("role").GetString());
+
+        await host.WithDatabaseAsync(db => db.ProfileAccess.Where(value => value.ProfileId == profileId)
+            .ExecuteDeleteAsync(TestContext.Current.CancellationToken));
+        using var revoked = await client.GetAsync($"/api/budget-profiles/{profileId}", TestContext.Current.CancellationToken);
+        using var missing = await client.GetAsync($"/api/budget-profiles/{Guid.NewGuid()}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, revoked.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
+        Assert.Equal(await missing.Content.ReadAsStringAsync(TestContext.Current.CancellationToken),
+            await revoked.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.False((await revoked.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Contains("Shared home", StringComparison.Ordinal));
     }
 
     [Theory]
