@@ -28,7 +28,11 @@ public sealed class ProfileListTests
         });
         var accountId = await AddAccount(host);
         var sessionId = await CreateSession(host, accountId);
-        await host.MigrateAsync();
+        await host.WithDatabaseAsync(async db =>
+        {
+            await db.GetService<IMigrator>().MigrateAsync("20261105164916_AddProfileList", TestContext.Current.CancellationToken);
+            return true;
+        });
         using var scope = host.Services.CreateScope();
         var session = await scope.ServiceProvider.GetRequiredService<IBffSessionStore>().FindAsync(sessionId, TestContext.Current.CancellationToken);
         Assert.Equal(accountId, session!.AccountId);
@@ -67,6 +71,13 @@ public sealed class ProfileListTests
         using var response = await client.GetAsync("/api/budget-profiles", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Null(response.Headers.Location);
+        using var creation = await client.PostAsJsonAsync("/api/budget-profiles", new { name = "Ticket only", mainCurrency = "GBP" }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, creation.StatusCode);
+        await host.WithDatabaseAsync(async db =>
+        {
+            Assert.False(await db.BudgetProfiles.AnyAsync(TestContext.Current.CancellationToken));
+            return true;
+        });
     }
 
     private sealed record AntiforgeryToken(string RequestToken);

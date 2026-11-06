@@ -14,11 +14,16 @@ public sealed class AccountIdentityDbContext(DbContextOptions<AccountIdentityDbC
     public DbSet<BudgetProfileRecord> BudgetProfiles => Set<BudgetProfileRecord>();
     public DbSet<ProfileAccessRecord> ProfileAccess => Set<ProfileAccessRecord>();
     public DbSet<CurrencyRecord> Currencies => Set<CurrencyRecord>();
+    public DbSet<ProfileCurrencyRecord> ProfileCurrencies => Set<ProfileCurrencyRecord>();
+    public DbSet<CategoryRecord> Categories => Set<CategoryRecord>();
+    public DbSet<PaymentMethodRecord> PaymentMethods => Set<PaymentMethodRecord>();
+    public DbSet<TagRecord> Tags => Set<TagRecord>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
         builder.ConfigureProfileList();
+        builder.ConfigureProfileCreation();
 
         builder.UseOpenIddict();
 

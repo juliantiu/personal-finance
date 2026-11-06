@@ -1,8 +1,8 @@
 # UC-002 — Create and access budget profiles — Implementation plan
 
-Status: **Plan approved and Phase 1 completed on 5 November 2026. Phases 2–6 have not started.** Product decisions below were confirmed by the user during planning on 5 November 2026. The user approved the presented plan and explicitly requested Phase 1 implementation; later phases retain their learning checkpoints. See [Phase 1 verification](verification.md) for observed red/green results and environment limits.
+Status: **Plan approved; Phase 1 completed on 5 November 2026 and Phase 2 completed on 6 November 2026. Phases 3–6 have not started.** Product decisions below were confirmed by the user during planning on 5 November 2026. The user approved the concrete Phase 2 plan on 6 November 2026; later phases retain their learning checkpoints. See [Phase 1 verification](verification.md) and [Phase 2 verification](verification-phase-2.md) for observed red/green results and environment limits.
 
-## Sources and current baseline
+## Sources and planning baseline (before Phase 1)
 
 - `docs/v1.0/` is the latest and only version directory directly under `docs/`, checked on 5 November 2026. Resolve the latest version again before subsequent implementation work.
 - [Proposal](../../PROPOSAL.md), [written UC-002 and UC-019 specifications](../use-cases.md), UC-002 [flow](flow.md), [states](states.md), and [sequence](sequence.md), and [UC-019 currency flow](../UC-019_configure-profile-currencies/flow.md).
@@ -62,11 +62,12 @@ Each numbered phase is a bounded slice of UC-002. Tests are written and run befo
    - **Checkpoint outcome:** A real sign-in reaches a working authorized list without exposing another account's profiles.
    - **Completion evidence:** Added `BudgetProfiles`, `ProfileAccess`, and GBP/USD `Currencies` storage; migration `20261105164916_AddProfileList`; an opaque-session/verified-account boundary; Mediator list query; credentialed GET endpoint with `no-store`; and the protected read-only MudBlazor list. Domain construction/defaults remain Phase 2 work. Final checks: Application **33 passed**, Client **39 passed**, Integration **77 passed**, Chrome **7 passed** (**156 total**, no failures/skips). Solution build and Release client publish succeeded. The migration was applied only to isolated test databases, including an upgrade preserving existing accounts/sessions; the ordinary development database was not changed. See [verification evidence](verification.md).
 
-2. **Not started — atomic profile creation through the UI.**
+2. **Completed 6 November 2026 — atomic profile creation through the UI.**
    - Add name/currency/default construction in Domain, the create command and validation, atomic persistence plus remaining default tables/constraints, POST contract/endpoint, and create form. Wire Create first/another profile from the list. On successful save, return to the list during this phase; automatic opening is completed in Phase 3.
    - Require explicit main selection and optionally enable the other supported currency. Disable submission while it is in flight; require antiforgery proof. Use the BFF account as original owner.
    - **Red/green:** Verify missing/blank/100/101-character names, trimming, allowed duplicate names, GBP/USD main choices, zero/one alternative, invalid memberships, and complete defaults. Run a real LocalDB failure-injection test proving an error during persistence leaves no profile or default rows. Verify posted owner spoofing cannot assign ownership and invalid antiforgery causes no write. Add bUnit valid-submit/field-error cases and a browser creation smoke test.
    - **Checkpoint outcome:** A signed-in user can create a complete profile and see it in their list; known failures leave no partial records.
+   - **Completion evidence:** Added immutable Domain setup construction, the validated Mediator creation command and atomic persistence port, `POST /api/budget-profiles` with the existing BFF/antiforgery boundary, the protected creation form, and first/another-profile links. Migration `20261106110747_AddProfileCreation` adds the four remaining setup tables and uniqueness constraints. SQL failure injection proves rollback of the whole creation. Unknown POST outcomes preserve inputs and require a list refresh before an explicit retry. Final checks: Domain **18 passed**, Application **41 passed**, Client **51 passed**, Integration **92 passed**, Chrome **8 passed** (**210 total**, no failures/skips); solution build and Release client publish succeeded. Migrations were applied only to isolated test databases. The user also exempted `src/PersonalFinance.Infrastructure/Persistence/` and its subdirectories from purpose-comment requirements. See [Phase 2 verification](verification-phase-2.md).
 
 3. **Not started — open a profile with current permissions.**
    - Implement the authorized open query, GET endpoint, landing DTO/page, and links from the list. Display saved settings/defaults and the server-resolved owner/editor/viewer role. Complete successful creation by opening the new profile.
@@ -112,3 +113,5 @@ Planning verification: **No builds, tests, migrations, or application implementa
 ## Approval
 
 The user approved this plan and authorized Phase 1 on 5 November 2026: “Approve and implement phase 1.” Implement Phase 1 only and pause at its learning checkpoint; proceeding to later phases requires the user's readiness signal.
+
+On 6 November 2026, after the concrete Phase 2 plan was presented, the user authorized it: “Go ahead and implement this plan.” The same message requested the Infrastructure persistence comment exemption now recorded in `AGENTS.md`. Phase 2 is complete; pause at its checkpoint before Phase 3.

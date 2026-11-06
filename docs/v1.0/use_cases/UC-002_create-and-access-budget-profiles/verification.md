@@ -1,6 +1,6 @@
 # UC-002 — Phase 1 verification
 
-Date: **5 November 2026**. Scope: [approved implementation plan, Phase 1](implementation-plan.md). Phase 1 is complete; Phases 2–6 have not started.
+Date: **5 November 2026**. Scope: [approved implementation plan, Phase 1](implementation-plan.md). Phase 1 is complete. The evidence below records its original checkpoint; see [Phase 2 verification](verification-phase-2.md) for the subsequent work completed on 6 November 2026.
 
 ## Delivered behavior and layer flow
 

@@ -26,7 +26,7 @@ public sealed class ProfileListPageTests
     }
 
     [Fact]
-    public async Task Populated_list_displays_names_currencies_and_current_roles_without_unimplemented_links()
+    public async Task Populated_list_displays_names_currencies_current_roles_and_creation_link()
     {
         var handler = new StubHandler { Populated = true };
         await using var context = CreateContext(handler);
@@ -35,7 +35,7 @@ public sealed class ProfileListPageTests
         foreach (var text in new[] { "Home", "Shared holiday", "Family savings", "GBP", "USD", "Owner", "Editor", "View only" })
             Assert.Contains(text, page.Markup);
         Assert.DoesNotContain("You don't have any budget profiles yet.", page.Markup);
-        Assert.Empty(page.FindAll("a[href^='/budget-profiles/']"));
+        Assert.Equal("Create another profile", Assert.Single(page.FindAll("a[href^='/budget-profiles/']")).TextContent);
         Assert.True(handler.CredentialsIncluded);
     }
 
