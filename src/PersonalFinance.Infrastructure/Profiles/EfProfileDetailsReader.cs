@@ -4,10 +4,8 @@ using PersonalFinance.Infrastructure.Persistence;
 
 namespace PersonalFinance.Infrastructure.Profiles;
 
-// Comment ID: CLASS-138. Projects a profile and its initial setup records after checking the requesting account's current access.
 public sealed class EfProfileDetailsReader(AccountIdentityDbContext database) : IProfileDetailsReader
 {
-    // Comment ID: METHOD-142. Fetches detail in one authorized query so stale grants never authorize an opened profile.
     public async Task<AccessibleProfileDetails?> GetAsync(Guid accountId, Guid profileId, CancellationToken cancellationToken)
     {
         return await database.BudgetProfiles.AsNoTracking()

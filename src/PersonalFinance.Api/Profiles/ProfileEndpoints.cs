@@ -13,7 +13,6 @@ public static class ProfileEndpoints
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
     }
 
-    // Comment ID: METHOD-143. Returns profile setup details only after the query checks the current account's ownership or grant.
     private static async Task<IResult> GetAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)
     {
         context.Response.Headers.CacheControl = "no-store";
@@ -37,7 +36,6 @@ public static class ProfileEndpoints
         }
     }
 
-    // Comment ID: METHOD-083. Checks the BFF account and antiforgery proof before dispatching validated atomic creation.
     private static async Task<IResult> CreateAsync(CreateProfileRequest request, IMediator mediator, ICurrentAccount currentAccount,
         IAntiforgery antiforgery, HttpContext context, CancellationToken cancellationToken)
     {

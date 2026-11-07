@@ -90,7 +90,6 @@
         finally { _loading = false; }
     }
 
-    // Comment ID: METHOD-073. Translates server-derived role values into readable labels without using them for authorization.
     private static string RoleLabel(string role) => role switch
     {
         "owner" => "Owner",
@@ -99,7 +98,6 @@
         _ => "Unavailable"
     };
 
-    // Comment ID: METHOD-074. Cancels an outstanding list request when navigation removes the page.
     public void Dispose()
     {
         _lifetime.Cancel();
