@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Playwright;
 using PersonalFinance.Infrastructure.Accounts;
+using PersonalFinance.Infrastructure.Persistence;
 using PersonalFinance.Infrastructure.Persistence.Profiles;
 using Xunit;
 using static Microsoft.Playwright.Assertions;
@@ -11,6 +12,77 @@ namespace PersonalFinance.EndToEndTests;
 
 public sealed class ProfileListBrowserTests
 {
+    [Fact]
+    public async Task Profiles_can_be_opened_and_switched_through_deep_links_list_and_browser_history()
+    {
+        await using var browser = await BrowserSession.StartAsync();
+        Guid accountId;
+        Guid otherId;
+        using (var scope = browser.Api.Services.CreateScope())
+        {
+            var manager = scope.ServiceProvider.GetRequiredService<UserManager<AccountIdentityUser>>();
+            var account = new AccountIdentityUser { UserName = "switching-browser@example.test", Email = "switching-browser@example.test", EmailConfirmed = true };
+            var other = new AccountIdentityUser { UserName = "switching-owner@example.test", Email = "switching-owner@example.test", EmailConfirmed = true };
+            Assert.True((await manager.CreateAsync(account, "abcdefghijkl")).Succeeded);
+            Assert.True((await manager.CreateAsync(other, "abcdefghijkl")).Succeeded);
+            accountId = account.Id;
+            otherId = other.Id;
+        }
+
+        var ownedId = Guid.NewGuid();
+        var sharedId = Guid.NewGuid();
+        await browser.Api.WithDatabaseAsync(async db =>
+        {
+            db.BudgetProfiles.AddRange(
+                new BudgetProfileRecord { Id = ownedId, OwnerAccountId = accountId, Name = "Owned dashboard", MainCurrencyCode = "GBP" },
+                new BudgetProfileRecord { Id = sharedId, OwnerAccountId = otherId, Name = "Shared dashboard", MainCurrencyCode = "USD" });
+            db.ProfileAccess.Add(new ProfileAccessRecord { ProfileId = sharedId, AccountId = accountId, Role = "view_only" });
+            AddInitialSetup(db, ownedId);
+            AddInitialSetup(db, sharedId);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return true;
+        });
+
+        var page = browser.Page;
+        await page.GotoAsync(browser.ClientUrl + "/budget-profiles");
+        await Expect(page).ToHaveURLAsync(browser.ClientUrl + "/login?returnUrl=%2Fbudget-profiles");
+        await page.GetByLabel("Email address", new() { Exact = true }).FillAsync("switching-browser@example.test");
+        await page.GetByLabel("Password", new() { Exact = true }).FillAsync("abcdefghijkl");
+        await page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync();
+        await Expect(page).ToHaveURLAsync(browser.ClientUrl + "/budget-profiles");
+
+        var ownedUrl = browser.ClientUrl + $"/budget-profiles/{ownedId}";
+        var sharedUrl = browser.ClientUrl + $"/budget-profiles/{sharedId}";
+        await page.GotoAsync(sharedUrl);
+        await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Shared dashboard", Exact = true })).ToBeVisibleAsync();
+        await Expect(page.GetByText("Your access: View only", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(page.GetByText("Main currency: USD", new() { Exact = true })).ToBeVisibleAsync();
+        await page.ReloadAsync();
+        await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Shared dashboard", Exact = true })).ToBeVisibleAsync();
+        await browser.Api.WithDatabaseAsync(db => db.ProfileAccess.Where(access => access.ProfileId == sharedId)
+            .ExecuteDeleteAsync(TestContext.Current.CancellationToken));
+        await page.ReloadAsync();
+        await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Budget profile unavailable", Exact = true })).ToBeVisibleAsync();
+        await Expect(page.GetByText("Shared dashboard", new() { Exact = true })).ToHaveCountAsync(0);
+
+        await page.GetByRole(AriaRole.Link, new() { Name = "Back to profiles", Exact = true }).ClickAsync();
+        await Expect(page).ToHaveURLAsync(browser.ClientUrl + "/budget-profiles");
+        var list = page.GetByRole(AriaRole.List, new() { Name = "Accessible budget profiles" });
+        await Expect(list.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(1);
+        await list.GetByRole(AriaRole.Link, new() { Name = "Owned dashboard", Exact = true }).ClickAsync();
+        await Expect(page).ToHaveURLAsync(ownedUrl);
+        await Expect(page.GetByText("Your access: Owner", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(page.GetByText("Main currency: GBP", new() { Exact = true })).ToBeVisibleAsync();
+
+        await page.GoBackAsync();
+        await Expect(page).ToHaveURLAsync(browser.ClientUrl + "/budget-profiles");
+        await page.GoForwardAsync();
+        await Expect(page).ToHaveURLAsync(ownedUrl);
+        await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Owned dashboard", Exact = true })).ToBeVisibleAsync();
+        await Expect(page.GetByText("Your access: Owner", new() { Exact = true })).ToBeVisibleAsync();
+        Assert.Empty(browser.PageErrors);
+    }
+
     [Fact]
     public async Task Protected_list_supports_real_sign_in_current_grants_and_recoverable_load_failure()
     {
@@ -79,5 +151,17 @@ public sealed class ProfileListBrowserTests
         await page.GetByRole(AriaRole.Button, new() { Name = "Try again", Exact = true }).ClickAsync();
         await Expect(list.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(2);
         Assert.Empty(browser.PageErrors);
+    }
+
+    private static void AddInitialSetup(AccountIdentityDbContext db, Guid profileId)
+    {
+        db.Categories.AddRange(
+            new CategoryRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "Income", Kind = "income" },
+            new CategoryRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "Savings", Kind = "savings" },
+            new CategoryRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "Debt", Kind = "debt" });
+        db.PaymentMethods.Add(new PaymentMethodRecord { Id = Guid.NewGuid(), ProfileId = profileId, Kind = "cash" });
+        db.Tags.AddRange(
+            new TagRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "IOU", SystemRole = "iou" },
+            new TagRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "IOU REPAYMENT", SystemRole = "iou_repayment" });
     }
 }

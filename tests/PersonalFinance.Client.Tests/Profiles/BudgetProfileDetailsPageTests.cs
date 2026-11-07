@@ -50,7 +50,63 @@ public sealed class BudgetProfileDetailsPageTests
         Assert.Contains("href=\"/budget-profiles\"", page.Markup);
     }
 
-    private static BunitContext CreateContext(StubHandler handler, string route)
+    [Fact]
+    public async Task Changing_profile_route_loads_the_new_profile_and_clears_the_previous_content()
+    {
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var handler = new RouteSwitchingHandler(firstId, secondId);
+        await using var context = CreateContext(handler, $"/budget-profiles/{firstId}");
+
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("First profile", page.Markup));
+
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo($"/budget-profiles/{secondId}");
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Second profile", page.Markup);
+            Assert.DoesNotContain("First profile", page.Markup);
+            Assert.Contains("Main currency: USD", page.Markup);
+            Assert.Contains("Your access: Editor", page.Markup);
+        });
+        Assert.Equal(new[] { firstId, secondId }, handler.RequestedProfileIds);
+    }
+
+    [Fact]
+    public async Task Late_response_for_previous_route_cannot_replace_the_selected_profile()
+    {
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var firstResponse = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondResponse = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new RouteSwitchingHandler(firstId, secondId)
+        {
+            FirstResponse = firstResponse.Task,
+            SecondResponse = secondResponse.Task
+        };
+        await using var context = CreateContext(handler, $"/budget-profiles/{firstId}");
+
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("Loading budget profile", page.Markup));
+
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo($"/budget-profiles/{secondId}");
+        page.WaitForAssertion(() => Assert.Contains("Loading budget profile", page.Markup));
+        Assert.DoesNotContain("First profile", page.Markup);
+
+        secondResponse.SetResult(RouteSwitchingHandler.ProfileResponse(secondId, "Second profile", "USD", "editor"));
+        page.WaitForAssertion(() => Assert.Contains("Second profile", page.Markup));
+
+        firstResponse.SetResult(RouteSwitchingHandler.ProfileResponse(firstId, "First profile", "GBP", "view_only"));
+        await Task.Yield();
+
+        Assert.Contains("Second profile", page.Markup);
+        Assert.DoesNotContain("First profile", page.Markup);
+        Assert.Contains("Main currency: USD", page.Markup);
+        Assert.Contains("Your access: Editor", page.Markup);
+    }
+
+    private static BunitContext CreateContext(HttpMessageHandler handler, string route)
     {
         var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -83,6 +139,38 @@ public sealed class BudgetProfileDetailsPageTests
                 [new ProfileCategoryDetailsResponse("Income", "income"), new ProfileCategoryDetailsResponse("Savings", "savings"), new ProfileCategoryDetailsResponse("Debt", "debt")],
                 [new ProfilePaymentMethodDetailsResponse("cash")], [new ProfileTagDetailsResponse("IOU", "iou")]);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(details) });
+        }
+    }
+
+    private sealed class RouteSwitchingHandler(Guid firstId, Guid secondId) : HttpMessageHandler
+    {
+        private readonly List<Guid> _requestedProfileIds = [];
+        public Task<HttpResponseMessage>? FirstResponse { get; init; }
+        public Task<HttpResponseMessage>? SecondResponse { get; init; }
+        public IReadOnlyList<Guid> RequestedProfileIds => _requestedProfileIds;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/auth/session")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = JsonContent.Create(new { authenticated = true, email = "person@example.test" }) });
+
+            var id = Guid.Parse(request.RequestUri.Segments[^1]);
+            _requestedProfileIds.Add(id);
+            if (id == firstId && FirstResponse is not null) return FirstResponse;
+            if (id == secondId && SecondResponse is not null) return SecondResponse;
+            if (id == firstId) return Task.FromResult(ProfileResponse(id, "First profile", "GBP", "view_only"));
+            if (id == secondId) return Task.FromResult(ProfileResponse(id, "Second profile", "USD", "editor"));
+            throw new InvalidOperationException($"Unexpected profile request: {id}.");
+        }
+
+        public static HttpResponseMessage ProfileResponse(Guid id, string name, string currency, string role)
+        {
+            var details = new ProfileDetailsResponse(id, name, currency, [], role,
+                [new ProfileCategoryDetailsResponse("Income", "income")],
+                [new ProfilePaymentMethodDetailsResponse("cash")],
+                [new ProfileTagDetailsResponse("IOU", "iou")]);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(details) };
         }
     }
 }

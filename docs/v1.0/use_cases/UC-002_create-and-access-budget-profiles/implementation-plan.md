@@ -1,6 +1,6 @@
 # UC-002 — Create and access budget profiles — Implementation plan
 
-Status: **Phases 1–3 completed by 6 November 2026; Phases 4–6 have not started.** Product decisions below were confirmed by the user during planning on 5 November 2026. The user approved the Phase 2 plan on 6 November 2026 and approved the Phase 3 plan in this session. See [Phase 1 verification](verification.md), [Phase 2 verification](verification-phase-2.md), and [Phase 3 verification](verification-phase-3.md) for observed red/green results and environment limits.
+Status: **Phases 1–4 completed by 7 November 2026; Phases 5–6 have not started.** Product decisions below were confirmed by the user during planning on 5 November 2026. The user approved the Phase 2 plan on 6 November 2026, the Phase 3 plan in that session, and the Phase 4 plan on 7 November 2026. See [Phase 1 verification](verification.md), [Phase 2 verification](verification-phase-2.md), [Phase 3 verification](verification-phase-3.md), and [Phase 4 verification](verification-phase-4.md) for observed red/green results and environment limits.
 
 ## Sources and planning baseline (before Phase 1)
 
@@ -76,10 +76,11 @@ Each numbered phase is a bounded slice of UC-002. Tests are written and run befo
    - **Checkpoint outcome:** A profile opens only under its current ownership/grant, and creation reaches its saved landing page.
    - **Completion evidence:** Added a current-account detail query and single-query EF authorization/projection, a no-store GET endpoint, a protected landing page and browser-safe contract, links from the list, and post-creation navigation. Owner/editor/viewer roles, anonymous requests, missing IDs, removed grants, response detail, the generic unavailable page, deep-link reload, and browser creation/open navigation are covered. Final checks: Domain **18 passed**, Application **43 passed**, Client **53 passed**, Integration **93 passed**, focused Playwright **1 passed** (**208 total**, no failures/skips); solution build and Release client publish succeeded. No migration or schema change was needed. See [Phase 3 verification](verification-phase-3.md).
 
-4. **Not started — switching and navigation consistency.**
+4. **Completed 7 November 2026 — switching and navigation consistency.**
    - Add a clear Back to profiles/switch interaction. Reload profile data when route parameters change, cancel or ignore outdated loads, and clear previous profile content during transitions. Keep selection in the route without adding an account preference or persistent last-profile setting.
    - **Red/green:** Use two profiles with different names, currencies, and roles; verify list-to-profile-to-list-to-other-profile navigation. Exercise direct deep links, reload, browser back/forward, same-component route changes, delayed responses, and an access removal observed on the next request. Add focused component tests first and a browser workflow across owned and seeded shared profiles.
    - **Checkpoint outcome:** Switching cannot display one profile's content or role under another profile's URL.
+   - **Completion evidence:** The details page reloads for every route parameter update, clears its prior projection while loading, cancels the previous request, and ignores late results from older loads. Focused component cases demonstrated the absent route reload and stale-result protection before implementation, then passed. The browser workflow verifies direct deep links and reloads, access removal on the next request, switching between owned and seeded view-only profiles, and browser back/forward. The complete Client suite passed **55** tests; all **9** EndToEnd browser tests passed; the solution build succeeded with **13 pre-existing warnings** and no errors. See [Phase 4 verification](verification-phase-4.md).
 
 5. **Not started — failure recovery across the completed flow.**
    - Complete consistent recovery for dependency/network failures, expired sessions, rejected antiforgery, stale access, and a creation request whose response is lost. Preserve creation inputs, offer explicit retry/back/list-refresh actions, and avoid success claims or automatic duplicate creation.
@@ -115,4 +116,6 @@ Planning verification: **No builds, tests, migrations, or application implementa
 
 The user approved this plan and authorized Phase 1 on 5 November 2026: “Approve and implement phase 1.” Implement Phase 1 only and pause at its learning checkpoint; proceeding to later phases requires the user's readiness signal.
 
-On 6 November 2026, after the concrete Phase 2 plan was presented, the user authorized it: “Go ahead and implement this plan.” The same message requested the Infrastructure persistence comment exemption now recorded in `AGENTS.md`. On 6 November 2026 the user approved the concrete Phase 3 plan in this session. Phase 3 is complete; pause at its checkpoint before Phase 4.
+On 6 November 2026, after the concrete Phase 2 plan was presented, the user authorized it: “Go ahead and implement this plan.” The same message requested the Infrastructure persistence comment exemption now recorded in `AGENTS.md`. On 6 November 2026 the user approved the concrete Phase 3 plan in this session. Phase 3 was completed at its checkpoint before Phase 4 began.
+
+On 7 November 2026, the user approved the concrete Phase 4 plan and requested implementation through completion. Phase 4 is complete; pause at its checkpoint before Phase 5.
