@@ -50,7 +50,7 @@
                 <ul aria-label="Refreshed budget profiles">
                     @foreach (var profile in _refreshedProfiles)
                     {
-                        <li>@profile.Name — @profile.MainCurrency</li>
+                        <li><a href="@($"/budget-profiles/{profile.Id}")">Open @profile.Name</a> — @profile.MainCurrency</li>
                     }
                 </ul>
             }
@@ -127,6 +127,8 @@
                     var feedback = await response.Content.ReadFromJsonAsync<CreationFeedback>(cancellationToken: cancellationToken);
                     if (feedback?.Errors is { Count: > 0 })
                         foreach (var field in feedback.Errors) _errors[field.Key] = field.Value;
+                    if (feedback?.Title?.Contains("request could not be validated", StringComparison.OrdinalIgnoreCase) == true)
+                        _error = "The request could not be validated, so your profile wasn't created. Submit again to retry with a fresh security check.";
                 }
                 catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException) { }
                 return;
@@ -197,5 +199,5 @@
     }
 
     private sealed record AntiforgeryProof(string? RequestToken);
-    private sealed record CreationFeedback(Dictionary<string, string[]>? Errors);
+    private sealed record CreationFeedback(Dictionary<string, string[]>? Errors, string? Title);
 }

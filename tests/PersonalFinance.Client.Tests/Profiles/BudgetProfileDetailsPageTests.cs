@@ -51,6 +51,21 @@ public sealed class BudgetProfileDetailsPageTests
     }
 
     [Fact]
+    public async Task Expired_session_clears_profile_details_and_returns_to_login()
+    {
+        var id = Guid.NewGuid();
+        await using var context = CreateContext(new StubHandler(id) { Unauthorized = true }, $"/budget-profiles/{id}");
+
+        var page = context.Render<App>();
+
+        page.WaitForAssertion(() => Assert.Equal(
+            $"http://localhost/login?returnUrl=%2Fbudget-profiles%2F{id}",
+            context.Services.GetRequiredService<NavigationManager>().Uri));
+        Assert.DoesNotContain("Shared home", page.Markup);
+        Assert.DoesNotContain("Main currency:", page.Markup);
+    }
+
+    [Fact]
     public async Task Changing_profile_route_loads_the_new_profile_and_clears_the_previous_content()
     {
         var firstId = Guid.NewGuid();
@@ -123,6 +138,7 @@ public sealed class BudgetProfileDetailsPageTests
     private sealed class StubHandler(Guid id) : HttpMessageHandler
     {
         public bool NotFound { get; init; }
+        public bool Unauthorized { get; init; }
         public string? Path { get; private set; }
         public bool CredentialsIncluded { get; private set; }
 
@@ -134,6 +150,7 @@ public sealed class BudgetProfileDetailsPageTests
             Path = request.RequestUri.AbsolutePath;
             CredentialsIncluded = request.Options.TryGetValue(new HttpRequestOptionsKey<IDictionary<string, object>>("WebAssemblyFetchOptions"), out var options)
                 && options.TryGetValue("credentials", out var credentials) && Equals(credentials, "include");
+            if (Unauthorized) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
             if (NotFound) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             var details = new ProfileDetailsResponse(id, "Shared home", "GBP", ["USD"], "view_only",
                 [new ProfileCategoryDetailsResponse("Income", "income"), new ProfileCategoryDetailsResponse("Savings", "savings"), new ProfileCategoryDetailsResponse("Debt", "debt")],

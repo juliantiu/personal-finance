@@ -1,6 +1,6 @@
 # UC-002 — Create and access budget profiles — Implementation plan
 
-Status: **Phases 1–4 completed by 7 November 2026; Phases 5–6 have not started.** Product decisions below were confirmed by the user during planning on 5 November 2026. The user approved the Phase 2 plan on 6 November 2026, the Phase 3 plan in that session, and the Phase 4 plan on 7 November 2026. See [Phase 1 verification](verification.md), [Phase 2 verification](verification-phase-2.md), [Phase 3 verification](verification-phase-3.md), and [Phase 4 verification](verification-phase-4.md) for observed red/green results and environment limits.
+Status: **Phases 1–5 completed by 7 November 2026; Phase 6 has not started.** Product decisions below were confirmed by the user during planning on 5 November 2026. The user approved the Phase 2 plan on 6 November 2026, the Phase 3 plan in that session, and the Phase 4 plan on 7 November 2026. See [Phase 1 verification](verification.md), [Phase 2 verification](verification-phase-2.md), [Phase 3 verification](verification-phase-3.md), [Phase 4 verification](verification-phase-4.md), and [Phase 5 verification](verification-phase-5.md) for observed red/green results and environment limits.
 
 ## Sources and planning baseline (before Phase 1)
 
@@ -82,11 +82,12 @@ Each numbered phase is a bounded slice of UC-002. Tests are written and run befo
    - **Checkpoint outcome:** Switching cannot display one profile's content or role under another profile's URL.
    - **Completion evidence:** The details page reloads for every route parameter update, clears its prior projection while loading, cancels the previous request, and ignores late results from older loads. Focused component cases demonstrated the absent route reload and stale-result protection before implementation, then passed. The browser workflow verifies direct deep links and reloads, access removal on the next request, switching between owned and seeded view-only profiles, and browser back/forward. The complete Client suite passed **55** tests; all **9** EndToEnd browser tests passed; the solution build succeeded with **13 pre-existing warnings** and no errors. See [Phase 4 verification](verification-phase-4.md).
 
-5. **Not started — failure recovery across the completed flow.**
+5. **Completed 7 November 2026 — failure recovery across the completed flow.**
    - Complete consistent recovery for dependency/network failures, expired sessions, rejected antiforgery, stale access, and a creation request whose response is lost. Preserve creation inputs, offer explicit retry/back/list-refresh actions, and avoid success claims or automatic duplicate creation.
    - Keep basic failure handling in the earlier phases; this phase joins the recovery paths across navigation and submission rather than leaving earlier slices unprotected.
    - **Red/green:** Reproduce each missing recovery behavior using controlled component/HTTP faults and targeted integration/browser cases. Verify unknown outcomes are distinguished from confirmed rollbacks, a second click cannot submit while the first is running, and protected content is cleared after the server reports session/access loss.
    - **Checkpoint outcome:** Each recoverable failure leaves a truthful state and a usable next action.
+   - **Completion evidence:** Rejected antiforgery responses now explain that the profile was not created and that another explicit submission will request a fresh security proof. After an uncertain result, a profile found by list refresh can be opened directly without another POST. An expired session on the details route is covered to confirm the login redirect does not retain profile content. Existing explicit refresh/retry guards and uncertainty handling remain covered. See [Phase 5 verification](verification-phase-5.md).
 
 6. **Not started — complete local acceptance and record evidence.**
    - Complete the acceptance matrix through the actual client and API using synthetic accounts and isolated LocalDB data: no profiles, create GBP/USD configurations, required defaults, reopening, multiple profiles, seeded shared roles, revoked access, session loss, and sign-out.

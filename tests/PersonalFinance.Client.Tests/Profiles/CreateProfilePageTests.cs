@@ -124,12 +124,38 @@ public sealed class CreateProfilePageTests
         var page = context.Render<App>();
         await Fill(page);
         await Submit(page);
-        page.WaitForAssertion(() => Assert.Contains("Your profile wasn't created.", page.Markup));
+        if (failure == "antiforgery")
+        {
+            page.WaitForAssertion(() => Assert.Contains("request could not be validated", page.Markup, StringComparison.OrdinalIgnoreCase));
+            Assert.Contains("request could not be validated", page.Markup, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("submit again", page.Markup, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            page.WaitForAssertion(() => Assert.Contains("Your profile wasn't created.", page.Markup));
+        }
         Assert.DoesNotContain("couldn't confirm whether", page.Markup);
         Assert.Equal(" Home ", page.Find("#profile-name").GetAttribute("value"));
         handler.Failure = null;
         await Submit(page);
         Assert.Equal(2, handler.Posts);
+    }
+
+    [Fact]
+    public async Task Profile_found_after_uncertain_result_can_be_opened_without_retrying_creation()
+    {
+        var handler = new StubHandler { Failure = "network" };
+        await using var context = CreateContext(handler);
+        var page = context.Render<App>();
+        await Fill(page);
+        await Submit(page);
+        await page.InvokeAsync(() => page.FindAll("button").Single(button => button.TextContent == "Refresh profile list").Click());
+
+        page.WaitForAssertion(() => Assert.Contains("Already saved", page.Markup));
+        var openLink = page.Find($"a[href='/budget-profiles/{handler.SavedProfileId}']");
+        Assert.Equal("Open Already saved", openLink.TextContent.Trim());
+        Assert.Equal(1, handler.Posts);
+        Assert.Equal(1, handler.Lists);
     }
 
     [Fact]
@@ -195,6 +221,7 @@ public sealed class CreateProfilePageTests
         public bool CredentialsIncluded { get; private set; }
         public string? Proof { get; private set; }
         public Guid CreatedId { get; } = Guid.NewGuid();
+        public Guid SavedProfileId { get; } = Guid.NewGuid();
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.RequestUri!.AbsolutePath == "/api/auth/session")
@@ -205,7 +232,7 @@ public sealed class CreateProfilePageTests
             {
                 Lists++;
                 if (FailList) return new(HttpStatusCode.ServiceUnavailable);
-                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new[] { new ProfileListItem(Guid.NewGuid(), "Already saved", "GBP", "owner") }) };
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new[] { new ProfileListItem(SavedProfileId, "Already saved", "GBP", "owner") }) };
             }
             Posts++;
             Input = await request.Content!.ReadFromJsonAsync<CreateProfileRequest>(cancellationToken);
