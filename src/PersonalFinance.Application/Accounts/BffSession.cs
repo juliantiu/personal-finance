@@ -37,9 +37,7 @@ public interface IBffTokenRefresher
     Task<BffTokenSet?> RefreshAsync(string refreshToken, CancellationToken cancellationToken);
 }
 
-// Comment ID: CLASS-021. Checks that a session's Identity account is still eligible for application access.
 public interface IAccountSessionEligibility
 {
-    // Comment ID: METHOD-036. Confirms that the account exists and its email is verified.
     Task<bool> IsActiveAsync(Guid accountId, CancellationToken cancellationToken);
 }

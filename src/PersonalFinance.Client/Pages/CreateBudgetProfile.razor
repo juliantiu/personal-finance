@@ -1,0 +1,203 @@
+@page "/budget-profiles/create"
+@using System.Net
+@using System.Text.Json
+@using Microsoft.AspNetCore.Authorization
+@using PersonalFinance.Contracts.Profiles
+@attribute [Authorize]
+@implements IDisposable
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject BffAuthenticationStateProvider Authentication
+
+<PageTitle>Create budget profile</PageTitle>
+<MudContainer MaxWidth="MaxWidth.Small" Class="py-8 px-4">
+    <MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">Create budget profile</MudText>
+    <MudText Class="mb-4">Choose a name and the main currency for this profile.</MudText>
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4" role="alert">@_error</MudAlert>
+    }
+    <MudTextField T="string" Label="Profile name" InputId="profile-name" Value="_name" ValueChanged="NameChanged"
+                  Error="_errors.ContainsKey(nameof(CreateProfileRequest.Name))" ErrorText="@FieldError(nameof(CreateProfileRequest.Name))" Disabled="_submitting" />
+    <MudSelect T="string" Label="Main currency" InputId="main-currency" Value="_mainCurrency" ValueChanged="MainChanged"
+               Error="_errors.ContainsKey(nameof(CreateProfileRequest.MainCurrency))" ErrorText="@FieldError(nameof(CreateProfileRequest.MainCurrency))" Disabled="_submitting">
+        <MudSelectItem Value='@("GBP")'>GBP — Pound sterling (£)</MudSelectItem>
+        <MudSelectItem Value='@("USD")'>USD — US dollar ($)</MudSelectItem>
+    </MudSelect>
+    @if (_mainCurrency is "GBP" or "USD")
+    {
+        <MudCheckBox T="bool" @bind-Value="_enableAdditional" Disabled="_submitting" Label="@($"Enable {AlternativeCurrency} as an additional currency")" />
+    }
+    @if (FieldError(nameof(CreateProfileRequest.AdditionalCurrencies)) is { } currencyError)
+    {
+        <MudText Color="Color.Error" role="alert">@currencyError</MudText>
+    }
+    <MudText Typo="Typo.body2" Class="my-4">Includes Income, Savings and Debt categories, Cash, and the IOU and IOU REPAYMENT tags.</MudText>
+    @if (_uncertain)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4" role="alert">
+            We couldn't confirm whether your profile was saved. Refresh your profile list and check for it before choosing to retry. Retrying may create another profile.
+        </MudAlert>
+        <MudButton OnClick="RefreshProfilesAsync" Disabled="_submitting || _refreshing" Variant="Variant.Outlined">Refresh profile list</MudButton>
+        @if (_refreshedProfiles is not null)
+        {
+            @if (_refreshedProfiles.Length == 0)
+            {
+                <MudText Class="my-3">No accessible profiles were found.</MudText>
+            }
+            else
+            {
+                <ul aria-label="Refreshed budget profiles">
+                    @foreach (var profile in _refreshedProfiles)
+                    {
+                        <li><a href="@($"/budget-profiles/{profile.Id}")">Open @profile.Name</a> — @profile.MainCurrency</li>
+                    }
+                </ul>
+            }
+            <MudButton OnClick="RetryAsync" Disabled="_submitting || _refreshing" Variant="Variant.Filled" Color="Color.Primary">Retry creation</MudButton>
+        }
+    }
+    else
+    {
+        <MudButton OnClick="SubmitAsync" Disabled="_submitting" Variant="Variant.Filled" Color="Color.Primary">@(_submitting ? "Creating…" : "Create profile")</MudButton>
+    }
+    <MudButton Href="/budget-profiles" Disabled="_submitting || _refreshing" Class="ml-2">Back to profiles</MudButton>
+</MudContainer>
+
+@code {
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly Dictionary<string, string[]> _errors = new(StringComparer.OrdinalIgnoreCase);
+    private string _name = string.Empty;
+    private string? _mainCurrency;
+    private bool _enableAdditional;
+    private bool _submitting;
+    private bool _uncertain;
+    private bool _refreshing;
+    private string? _error;
+    private ProfileListItem[]? _refreshedProfiles;
+    private string AlternativeCurrency => _mainCurrency == "GBP" ? "USD" : "GBP";
+
+    private void NameChanged(string value)
+    {
+        _name = value;
+        _errors.Remove(nameof(CreateProfileRequest.Name));
+    }
+
+    private void MainChanged(string value)
+    {
+        _mainCurrency = value;
+        _enableAdditional = false;
+        _errors.Remove(nameof(CreateProfileRequest.MainCurrency));
+        _errors.Remove(nameof(CreateProfileRequest.AdditionalCurrencies));
+    }
+
+    private string? FieldError(string field) => _errors.TryGetValue(field, out var messages) ? string.Join(" ", messages) : null;
+
+    private async Task SubmitAsync()
+    {
+        if (_submitting || _uncertain) return;
+        _errors.Clear();
+        _error = null;
+        if (string.IsNullOrWhiteSpace(_name)) _errors[nameof(CreateProfileRequest.Name)] = ["Enter a profile name."];
+        else if (_name.Trim().Length > 100) _errors[nameof(CreateProfileRequest.Name)] = ["Use at most 100 characters after trimming."];
+        if (_mainCurrency is not ("GBP" or "USD")) _errors[nameof(CreateProfileRequest.MainCurrency)] = ["Select GBP or USD as the main currency."];
+        if (_errors.Count != 0) return;
+        _submitting = true;
+        var postStarted = false;
+        var cancellationToken = _lifetime.Token;
+        try
+        {
+            using var proofRequest = CredentialedRequest(HttpMethod.Get, "api/auth/antiforgery");
+            using var proofResponse = await Http.SendAsync(proofRequest, cancellationToken);
+            if (proofResponse.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            proofResponse.EnsureSuccessStatusCode();
+            var proof = await proofResponse.Content.ReadFromJsonAsync<AntiforgeryProof>(cancellationToken: cancellationToken);
+            if (string.IsNullOrWhiteSpace(proof?.RequestToken)) throw new JsonException("Missing request proof.");
+            using var request = CredentialedRequest(HttpMethod.Post, "api/budget-profiles");
+            request.Headers.Add("X-CSRF-TOKEN", proof.RequestToken);
+            request.Content = JsonContent.Create(new CreateProfileRequest(_name, _mainCurrency, _enableAdditional ? [AlternativeCurrency] : []));
+            postStarted = true;
+            using var response = await Http.SendAsync(request, cancellationToken);
+            if (response.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            if (response.StatusCode == HttpStatusCode.BadRequest)
+            {
+                _error = "Your profile wasn't created. Check the form and try again.";
+                try
+                {
+                    var feedback = await response.Content.ReadFromJsonAsync<CreationFeedback>(cancellationToken: cancellationToken);
+                    if (feedback?.Errors is { Count: > 0 })
+                        foreach (var field in feedback.Errors) _errors[field.Key] = field.Value;
+                    if (feedback?.Title?.Contains("request could not be validated", StringComparison.OrdinalIgnoreCase) == true)
+                        _error = "The request could not be validated, so your profile wasn't created. Submit again to retry with a fresh security check.";
+                }
+                catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException) { }
+                return;
+            }
+            if (response.StatusCode != HttpStatusCode.Created) { _uncertain = true; return; }
+            var saved = await response.Content.ReadFromJsonAsync<CreatedProfileResponse>(cancellationToken: cancellationToken);
+            if (saved is null || saved.Id == Guid.Empty) throw new JsonException("Missing saved profile identity.");
+            Navigation.NavigateTo($"/budget-profiles/{saved.Id}");
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            if (postStarted) _uncertain = true;
+            else _error = "We couldn't prepare your request. Your profile wasn't submitted. Please try again.";
+        }
+        finally { _submitting = false; }
+    }
+
+    private async Task RefreshProfilesAsync()
+    {
+        if (_refreshing || _submitting) return;
+        _refreshing = true;
+        _error = null;
+        _refreshedProfiles = null;
+        var cancellationToken = _lifetime.Token;
+        try
+        {
+            using var request = CredentialedRequest(HttpMethod.Get, "api/budget-profiles");
+            using var response = await Http.SendAsync(request, cancellationToken);
+            if (response.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            response.EnsureSuccessStatusCode();
+            _refreshedProfiles = await response.Content.ReadFromJsonAsync<ProfileListItem[]>(cancellationToken: cancellationToken)
+                ?? throw new JsonException("Missing profile list.");
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            _error = "We couldn't refresh your profiles. Please try again.";
+        }
+        finally { _refreshing = false; }
+    }
+
+    private Task RetryAsync()
+    {
+        if (_submitting || _refreshing || _refreshedProfiles is null) return Task.CompletedTask;
+        _uncertain = false;
+        _refreshedProfiles = null;
+        return SubmitAsync();
+    }
+
+    private static HttpRequestMessage CredentialedRequest(HttpMethod method, string path)
+    {
+        var request = new HttpRequestMessage(method, path);
+        request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+        return request;
+    }
+
+    private void ReturnToLogin()
+    {
+        Authentication.NotifySignedOut();
+        Navigation.NavigateTo("/login?returnUrl=%2Fbudget-profiles%2Fcreate", replace: true);
+    }
+
+    public void Dispose()
+    {
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
+
+    private sealed record AntiforgeryProof(string? RequestToken);
+    private sealed record CreationFeedback(Dictionary<string, string[]>? Errors, string? Title);
+}

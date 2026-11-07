@@ -2,15 +2,16 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PersonalFinance.Domain\PersonalFinance.Domain.csproj" />
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
   </ItemGroup>
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- No domain tests exist yet. Enable discovery when a runner and tests are added. -->
-    <IsTestProject>false</IsTestProject>
+    <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
 </Project>

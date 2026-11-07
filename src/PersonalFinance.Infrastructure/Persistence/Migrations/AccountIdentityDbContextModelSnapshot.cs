@@ -413,6 +413,195 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                     b.ToTable("BffSessions", (string)null);
                 });
 
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.BudgetProfileRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("MainCurrencyCode")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("OwnerAccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MainCurrencyCode");
+
+                    b.HasIndex("OwnerAccountId");
+
+                    b.ToTable("BudgetProfiles", (string)null);
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.CategoryRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(7)
+                        .HasColumnType("nvarchar(7)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProfileId", "Kind")
+                        .IsUnique()
+                        .HasFilter("[Kind] IN ('income', 'savings', 'debt')");
+
+                    b.ToTable("Categories", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Categories_Kind", "[Kind] IN ('income', 'savings', 'debt')");
+                        });
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.CurrencyRecord", b =>
+                {
+                    b.Property<string>("Code")
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("Symbol")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.HasKey("Code");
+
+                    b.ToTable("Currencies", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Code = "GBP",
+                            Name = "Pound sterling",
+                            Symbol = "£"
+                        },
+                        new
+                        {
+                            Code = "USD",
+                            Name = "US dollar",
+                            Symbol = "$"
+                        });
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.PaymentMethodRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(4)
+                        .HasColumnType("nvarchar(4)");
+
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProfileId", "Kind")
+                        .IsUnique()
+                        .HasFilter("[Kind] = 'cash'");
+
+                    b.ToTable("PaymentMethods", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_PaymentMethods_Kind", "[Kind] = 'cash'");
+                        });
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.ProfileAccessRecord", b =>
+                {
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(9)
+                        .HasColumnType("nvarchar(9)");
+
+                    b.HasKey("ProfileId", "AccountId");
+
+                    b.HasIndex("AccountId");
+
+                    b.ToTable("ProfileAccess", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ProfileAccess_Role", "[Role] IN ('editor', 'view_only')");
+                        });
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.ProfileCurrencyRecord", b =>
+                {
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CurrencyCode")
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.HasKey("ProfileId", "CurrencyCode");
+
+                    b.HasIndex("CurrencyCode");
+
+                    b.ToTable("ProfileCurrencies", (string)null);
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.TagRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<Guid>("ProfileId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SystemRole")
+                        .HasMaxLength(13)
+                        .HasColumnType("nvarchar(13)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProfileId", "SystemRole")
+                        .IsUnique()
+                        .HasFilter("[SystemRole] IS NOT NULL");
+
+                    b.ToTable("Tags", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Tags_SystemRole", "[SystemRole] IS NULL OR [SystemRole] IN ('iou', 'iou_repayment')");
+                        });
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<System.Guid>", b =>
                 {
                     b.HasOne("PersonalFinance.Infrastructure.Accounts.AccountIdentityUser", null)
@@ -469,6 +658,78 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                     b.HasOne("PersonalFinance.Infrastructure.Accounts.AccountIdentityUser", null)
                         .WithMany()
                         .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.BudgetProfileRecord", b =>
+                {
+                    b.HasOne("PersonalFinance.Infrastructure.Persistence.Profiles.CurrencyRecord", null)
+                        .WithMany()
+                        .HasForeignKey("MainCurrencyCode")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("PersonalFinance.Infrastructure.Accounts.AccountIdentityUser", null)
+                        .WithMany()
+                        .HasForeignKey("OwnerAccountId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.CategoryRecord", b =>
+                {
+                    b.HasOne("PersonalFinance.Infrastructure.Persistence.Profiles.BudgetProfileRecord", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.PaymentMethodRecord", b =>
+                {
+                    b.HasOne("PersonalFinance.Infrastructure.Persistence.Profiles.BudgetProfileRecord", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.ProfileAccessRecord", b =>
+                {
+                    b.HasOne("PersonalFinance.Infrastructure.Accounts.AccountIdentityUser", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("PersonalFinance.Infrastructure.Persistence.Profiles.BudgetProfileRecord", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.ProfileCurrencyRecord", b =>
+                {
+                    b.HasOne("PersonalFinance.Infrastructure.Persistence.Profiles.CurrencyRecord", null)
+                        .WithMany()
+                        .HasForeignKey("CurrencyCode")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.HasOne("PersonalFinance.Infrastructure.Persistence.Profiles.BudgetProfileRecord", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.TagRecord", b =>
+                {
+                    b.HasOne("PersonalFinance.Infrastructure.Persistence.Profiles.BudgetProfileRecord", null)
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

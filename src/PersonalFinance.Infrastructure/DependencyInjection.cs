@@ -10,6 +10,8 @@ using Azure.Identity;
 using PersonalFinance.Infrastructure.Accounts;
 using PersonalFinance.Infrastructure.Email;
 using PersonalFinance.Infrastructure.Persistence;
+using PersonalFinance.Application.Profiles;
+using PersonalFinance.Infrastructure.Profiles;
 
 namespace PersonalFinance.Infrastructure;
 
@@ -52,6 +54,9 @@ public static class DependencyInjection
         services.Configure<DataProtectionTokenProviderOptions>(options =>
             options.TokenLifespan = TimeSpan.FromHours(24));
         services.AddScoped<IAccountIdentity, IdentityAccountIdentity>();
+        services.AddScoped<IAccessibleProfileReader, EfAccessibleProfileReader>();
+        services.AddScoped<IProfileDetailsReader, EfProfileDetailsReader>();
+        services.AddScoped<IProfileCreationStore, EfProfileCreationStore>();
         services.AddScoped<IAccountSessionEligibility, IdentityAccountSessionEligibility>();
         services.AddScoped<IBffSessionStore, ProtectedBffSessionStore>();
         services.AddSingleton<ITicketStore, ProtectedAuthenticationTicketStore>();

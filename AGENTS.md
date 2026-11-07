@@ -17,6 +17,7 @@ These instructions apply throughout this repository.
 
 ## Document new classes and methods
 
+- The class and method comment requirements below do not apply to `src/PersonalFinance.Infrastructure/Persistence/` or any of its subdirectories, including migrations and generated persistence files.
 - During implementation, whenever a new class is created outside the `tests/` directory, add a comment at the top of the file describing the class's purpose and what it is used for.
 - During implementation, whenever a new method is created outside the `tests/` directory, add a comment immediately above the method describing its purpose and briefly explaining what it does.
 - Give every class and method comment a unique, easy-to-reference ID using the format `Comment ID: CLASS-###` for class comments or `Comment ID: METHOD-###` for method comments. Keep IDs unique within the repository while the comments are present. Leave the comments in place after implementation; the user will remove them after reviewing the code.

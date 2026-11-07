@@ -1,0 +1,161 @@
+@page "/budget-profiles/{ProfileId:guid}"
+@using System.Net
+@using System.Text.Json
+@using Microsoft.AspNetCore.Authorization
+@using PersonalFinance.Contracts.Profiles
+@attribute [Authorize]
+@implements IDisposable
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject BffAuthenticationStateProvider Authentication
+
+<PageTitle>@(_profile?.Name ?? "Budget profile")</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="py-8 px-4">
+    @if (_loading)
+    {
+        <div role="status" aria-live="polite">
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-3" />
+            <MudText>Loading budget profile…</MudText>
+        </div>
+    }
+    else if (_unavailable)
+    {
+        <MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">Budget profile unavailable</MudText>
+        <MudText role="status">This profile isn't available. It may have been removed or you may no longer have access.</MudText>
+        <MudButton Href="/budget-profiles" Variant="Variant.Filled" Color="Color.Primary" Class="mt-4">Back to profiles</MudButton>
+    }
+    else if (_error)
+    {
+        <MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">Budget profile</MudText>
+        <MudAlert Severity="Severity.Error" Class="mb-4" role="alert">We couldn't load this budget profile. Please try again.</MudAlert>
+        <MudButton OnClick="LoadAsync" Variant="Variant.Outlined" Color="Color.Primary">Try again</MudButton>
+        <MudButton Href="/budget-profiles" Class="ml-2">Back to profiles</MudButton>
+    }
+    else if (_profile is not null)
+    {
+        <MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">@_profile.Name</MudText>
+        <MudText Typo="Typo.body1">Your access: @RoleLabel(_profile.Role)</MudText>
+
+        <MudPaper Outlined="true" Class="pa-4 mt-5">
+            <MudText Typo="Typo.h6" HtmlTag="h2">Profile settings</MudText>
+            <MudText>Main currency: @_profile.MainCurrency</MudText>
+            <MudText>Additional currencies: @( _profile.AdditionalCurrencies.Count == 0 ? "None" : string.Join(", ", _profile.AdditionalCurrencies))</MudText>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Class="pa-4 mt-4">
+            <MudText Typo="Typo.h6" HtmlTag="h2">Categories</MudText>
+            <ul aria-label="Profile categories">
+                @foreach (var category in _profile.Categories)
+                {
+                    <li @key="category.Kind">@category.Name</li>
+                }
+            </ul>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Class="pa-4 mt-4">
+            <MudText Typo="Typo.h6" HtmlTag="h2">Payment methods</MudText>
+            <ul aria-label="Profile payment methods">
+                @foreach (var method in _profile.PaymentMethods)
+                {
+                    <li @key="method.Kind">@PaymentMethodLabel(method.Kind)</li>
+                }
+            </ul>
+        </MudPaper>
+
+        <MudPaper Outlined="true" Class="pa-4 mt-4">
+            <MudText Typo="Typo.h6" HtmlTag="h2">Tags</MudText>
+            <ul aria-label="Profile tags">
+                @foreach (var tag in _profile.Tags)
+                {
+                    <li @key="tag.Role">@tag.Name</li>
+                }
+            </ul>
+        </MudPaper>
+
+        <MudButton Href="/budget-profiles" Variant="Variant.Outlined" Color="Color.Primary" Class="mt-5">Back to profiles</MudButton>
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public Guid ProfileId { get; set; }
+
+    private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _activeLoad;
+    private int _loadGeneration;
+    private ProfileDetailsResponse? _profile;
+    private bool _loading;
+    private bool _error;
+    private bool _unavailable;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var generation = ++_loadGeneration;
+        var requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var previousLoad = _activeLoad;
+        _activeLoad = requestCancellation;
+        previousLoad?.Cancel();
+
+        _loading = true;
+        _error = false;
+        _unavailable = false;
+        _profile = null;
+        var cancellationToken = requestCancellation.Token;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"api/budget-profiles/{ProfileId}");
+            request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+            using var response = await Http.SendAsync(request, cancellationToken);
+            if (generation != _loadGeneration) return;
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                Authentication.NotifySignedOut();
+                Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString($"/budget-profiles/{ProfileId}")}", replace: true);
+                return;
+            }
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                _unavailable = true;
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            var profile = await response.Content.ReadFromJsonAsync<ProfileDetailsResponse>(cancellationToken: cancellationToken)
+                ?? throw new JsonException("The profile details are missing.");
+            if (generation == _loadGeneration) _profile = profile;
+        }
+        catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            if (generation == _loadGeneration) _error = true;
+        }
+        finally
+        {
+            if (generation == _loadGeneration) _loading = false;
+            if (ReferenceEquals(_activeLoad, requestCancellation)) _activeLoad = null;
+            requestCancellation.Dispose();
+        }
+    }
+
+    private static string RoleLabel(string role) => role switch
+    {
+        "owner" => "Owner",
+        "editor" => "Editor",
+        "view_only" => "View only",
+        _ => "Unavailable"
+    };
+
+    private static string PaymentMethodLabel(string kind) => kind switch
+    {
+        "cash" => "Cash",
+        _ => "Unavailable"
+    };
+
+    public void Dispose()
+    {
+        _activeLoad?.Cancel();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
+}
