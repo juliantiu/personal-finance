@@ -1,6 +1,6 @@
 # UC-002 — Create and access budget profiles — Implementation plan
 
-Status: **Phases 1–5 completed by 7 November 2026; Phase 6 has not started.** Product decisions below were confirmed by the user during planning on 5 November 2026. The user approved the Phase 2 plan on 6 November 2026, the Phase 3 plan in that session, and the Phase 4 plan on 7 November 2026. See [Phase 1 verification](verification.md), [Phase 2 verification](verification-phase-2.md), [Phase 3 verification](verification-phase-3.md), [Phase 4 verification](verification-phase-4.md), and [Phase 5 verification](verification-phase-5.md) for observed red/green results and environment limits.
+Status: **Phases 1–6 completed by 7 November 2026.** Product decisions below were confirmed by the user during planning on 5 November 2026. The user approved the Phase 2 plan on 6 November 2026, the Phase 3 plan in that session, the Phase 4 plan on 7 November 2026, and the Phase 6 verification plan on 7 November 2026. See [Phase 1 verification](verification.md), [Phase 2 verification](verification-phase-2.md), [Phase 3 verification](verification-phase-3.md), [Phase 4 verification](verification-phase-4.md), [Phase 5 verification](verification-phase-5.md), and [Phase 6 verification](verification-phase-6.md) for observed red/green results and environment limits.
 
 ## Sources and planning baseline (before Phase 1)
 
@@ -89,12 +89,13 @@ Each numbered phase is a bounded slice of UC-002. Tests are written and run befo
    - **Checkpoint outcome:** Each recoverable failure leaves a truthful state and a usable next action.
    - **Completion evidence:** Rejected antiforgery responses now explain that the profile was not created and that another explicit submission will request a fresh security proof. After an uncertain result, a profile found by list refresh can be opened directly without another POST. An expired session on the details route is covered to confirm the login redirect does not retain profile content. Existing explicit refresh/retry guards and uncertainty handling remain covered. See [Phase 5 verification](verification-phase-5.md).
 
-6. **Not started — complete local acceptance and record evidence.**
+6. **Completed 7 November 2026 — complete local acceptance and record evidence.**
    - Complete the acceptance matrix through the actual client and API using synthetic accounts and isolated LocalDB data: no profiles, create GBP/USD configurations, required defaults, reopening, multiple profiles, seeded shared roles, revoked access, session loss, and sign-out.
    - Run Domain/Application/Client/Integration tests, the applicable serial Playwright browser matrix, solution build, Release client publish, and `git diff --check`. Reuse UC-020's working browser configuration; report Firefox startup limitations and do not claim actual Safari coverage from WebKit. Do not expand into Azure provisioning or production-origin verification.
    - Run existing registration/confirmation and BFF sign-in/refresh/sign-out regressions. Add only missing acceptance cases with a genuine red/green cycle; retain the already-written per-phase tests.
    - Record exact commands, observed red/green evidence, counts, environments, migration checks, and blocked checks in a UC-002 verification document. Mark phases complete only after their required work/checks actually finish.
-   - **Checkpoint outcome:** The complete UC-002 workflow is demonstrated locally, with repeatable evidence and explicit remaining deployment gates.
+   - **Completion evidence:** Domain **18 passed**, Application **43 passed**, Client **57 passed**, Integration/LocalDB **93 passed**, Chrome EndToEnd **9 passed**, and Edge EndToEnd **9 passed**. The solution build succeeded with **0 warnings and 0 errors**; Release client publish succeeded without optional `wasm-tools` optimization; `git diff --check` passed. The EndToEnd suite was run with xUnit parallelism limited to one thread after concurrent LocalDB hosts caused timeouts. WebKit was installed and attempted but **5 of 9 workflows failed** before the registration page appeared, with no browser page or console errors; the other 4 passed. Brave is not installed. Firefox remains blocked by its previously recorded startup limitation. WebKit engine results do not establish Safari coverage. No Azure/deployed-origin checks were run. See [Phase 6 verification](verification-phase-6.md).
+   - **Checkpoint outcome:** The complete UC-002 workflow is demonstrated locally in Chrome and Edge, with repeatable evidence and explicit remaining browser and deployment gates.
 
 ## Verification rules
 
