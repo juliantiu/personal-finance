@@ -201,4 +201,4 @@ Validation at the original 20 October 2026 generation: all **57 Mermaid diagrams
 
 **Configure profile currencies.** Specification: UC-019 row in the [use case table](#use-case-table).
 
-[Flow](UC-019_configure-profile-currencies/flow.md) · [States](UC-019_configure-profile-currencies/states.md) · [Sequence](UC-019_configure-profile-currencies/sequence.md)
+[Implementation plan](UC-019_configure-profile-currencies/implementation-plan.md) · [Flow](UC-019_configure-profile-currencies/flow.md) · [States](UC-019_configure-profile-currencies/states.md) · [Sequence](UC-019_configure-profile-currencies/sequence.md)

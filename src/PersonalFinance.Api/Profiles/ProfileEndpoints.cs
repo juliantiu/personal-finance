@@ -10,7 +10,30 @@ public static class ProfileEndpoints
     {
         endpoints.MapGet("/api/budget-profiles", ListAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}", GetAsync);
+        endpoints.MapGet("/api/budget-profiles/{profileId:guid}/currency-settings", GetCurrencySettingsAsync);
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
+    }
+
+    // Comment ID: METHOD-062. Returns no-store currency settings to current participants without disclosing inaccessible profiles.
+    private static async Task<IResult> GetCurrencySettingsAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            var settings = await mediator.Send(new GetProfileCurrencySettingsQuery(profileId), cancellationToken);
+            if (settings is null) return Results.NotFound();
+            return Results.Ok(new ProfileCurrencySettingsResponse(
+                settings.ProfileId,
+                settings.MainCurrency,
+                settings.AdditionalCurrencies,
+                settings.Role,
+                settings.SupportedCurrencies.Select(currency =>
+                    new SupportedCurrencyResponse(currency.Code, currency.Name, currency.Symbol)).ToArray()));
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign in to access this budget profile.");
+        }
     }
 
     private static async Task<IResult> GetAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)

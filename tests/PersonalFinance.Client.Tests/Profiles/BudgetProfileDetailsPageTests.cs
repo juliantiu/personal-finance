@@ -29,6 +29,7 @@ public sealed class BudgetProfileDetailsPageTests
         Assert.Contains("Your access: View only", page.Markup);
         Assert.Contains("Main currency: GBP", page.Markup);
         Assert.Contains("Additional currencies: USD", page.Markup);
+        Assert.Contains($"href=\"/budget-profiles/{id}/currencies\"", page.Markup);
         Assert.Contains("Income", page.Markup);
         Assert.Contains("Cash", page.Markup);
         Assert.Contains("IOU", page.Markup);
