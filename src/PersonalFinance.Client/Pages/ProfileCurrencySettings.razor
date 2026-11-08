@@ -69,10 +69,8 @@
     private bool _error;
     private bool _unavailable;
 
-    // Comment ID: METHOD-063. Reloads settings when this route receives a profile identifier.
     protected override Task OnParametersSetAsync() => LoadAsync();
 
-    // Comment ID: METHOD-064. Loads current settings with the BFF session and presents access, network, and server failures explicitly.
     private async Task LoadAsync()
     {
         var generation = ++_loadGeneration;
@@ -121,7 +119,6 @@
         }
     }
 
-    // Comment ID: METHOD-065. Converts the server role code into a user-facing access label.
     private static string RoleLabel(string role) => role switch
     {
         "owner" => "Owner",
@@ -130,7 +127,6 @@
         _ => "Unavailable"
     };
 
-    // Comment ID: METHOD-066. Cancels outstanding settings reads when the view is removed.
     public void Dispose()
     {
         _activeLoad?.Cancel();

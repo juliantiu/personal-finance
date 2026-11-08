@@ -14,7 +14,6 @@ public static class ProfileEndpoints
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
     }
 
-    // Comment ID: METHOD-062. Returns no-store currency settings to current participants without disclosing inaccessible profiles.
     private static async Task<IResult> GetCurrencySettingsAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)
     {
         context.Response.Headers.CacheControl = "no-store";

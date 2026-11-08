@@ -4,10 +4,8 @@ using PersonalFinance.Infrastructure.Persistence;
 
 namespace PersonalFinance.Infrastructure.Profiles;
 
-// Comment ID: CLASS-045. Reads saved currency settings and the catalog only for a currently accessible profile.
 public sealed class EfProfileCurrencySettingsReader(AccountIdentityDbContext database) : IProfileCurrencySettingsReader
 {
-    // Comment ID: METHOD-061. Projects the profile, effective role, enabled alternatives, and supported catalog in one authorized read.
     public async Task<ProfileCurrencySettings?> GetAsync(Guid accountId, Guid profileId, CancellationToken cancellationToken)
     {
         return await database.BudgetProfiles.AsNoTracking()
