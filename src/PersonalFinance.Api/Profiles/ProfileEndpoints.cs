@@ -11,7 +11,24 @@ public static class ProfileEndpoints
         endpoints.MapGet("/api/budget-profiles", ListAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}", GetAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/currency-settings", GetCurrencySettingsAsync);
+        endpoints.MapGet("/api/budget-profiles/{profileId:guid}/categories", GetCategoriesAsync);
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
+    }
+
+    private static async Task<IResult> GetCategoriesAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            var categories = await mediator.Send(new GetProfileCategoriesQuery(profileId), cancellationToken);
+            if (categories is null) return Results.NotFound();
+            return Results.Ok(new ProfileCategoriesResponse(categories.ProfileId, categories.Role,
+                categories.Categories.Select(category => new ProfileCategoryResponse(category.Id, category.Name, category.Kind)).ToArray()));
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign in to access this budget profile.");
+        }
     }
 
     private static async Task<IResult> GetCurrencySettingsAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)

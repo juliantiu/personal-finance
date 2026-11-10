@@ -1,0 +1,148 @@
+@page "/budget-profiles/{ProfileId:guid}/categories"
+@using System.Net
+@using System.Text.Json
+@using Microsoft.AspNetCore.Authorization
+@using PersonalFinance.Contracts.Profiles
+@attribute [Authorize]
+@implements IDisposable
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject BffAuthenticationStateProvider Authentication
+
+@* Comment ID: CLASS-054. Lets current profile participants review authoritative category names and system meanings without mutation controls. *@
+<PageTitle>Categories</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Medium" Class="py-8 px-4">
+    @if (_loading)
+    {
+        <div role="status" aria-live="polite">
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" Class="mb-3" />
+            <MudText>Loading categories…</MudText>
+        </div>
+    }
+    else if (_unavailable)
+    {
+        <MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">Categories unavailable</MudText>
+        <MudText role="status">These categories aren't available. The profile may have been removed or you may no longer have access.</MudText>
+        <MudButton Href="/budget-profiles" Variant="Variant.Filled" Color="Color.Primary" Class="mt-4">Back to profiles</MudButton>
+    }
+    else if (_error)
+    {
+        <MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">Categories</MudText>
+        <MudAlert Severity="Severity.Error" Class="mb-4" role="alert">We couldn't load categories. Please try again.</MudAlert>
+        <MudButton OnClick="LoadAsync" Variant="Variant.Outlined" Color="Color.Primary">Try again</MudButton>
+        <MudButton Href="@($"/budget-profiles/{ProfileId}")" Class="ml-2">Back to profile</MudButton>
+    }
+    else if (_categories is not null)
+    {
+        <MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">Categories</MudText>
+        <MudText Typo="Typo.body1">Your access: @RoleLabel(_categories.Role)</MudText>
+
+        <MudPaper Outlined="true" Class="pa-4 mt-5">
+            <MudText Typo="Typo.h6" HtmlTag="h2">Profile categories</MudText>
+            @if (_categories.Categories.Count == 0)
+            {
+                <MudText role="status">No categories are available for this profile.</MudText>
+            }
+            else
+            {
+                <ul aria-label="Profile categories">
+                    @foreach (var category in _categories.Categories)
+                    {
+                        <li @key="category.Id" class="mb-3">
+                            <MudText>@category.Name</MudText>
+                            <MudText Typo="Typo.body2">System category: @KindLabel(category.Kind)</MudText>
+                        </li>
+                    }
+                </ul>
+            }
+        </MudPaper>
+        <MudButton Href="@($"/budget-profiles/{ProfileId}")" Variant="Variant.Outlined" Color="Color.Primary" Class="mt-5">Back to profile</MudButton>
+    }
+</MudContainer>
+
+@code {
+    [Parameter] public Guid ProfileId { get; set; }
+
+    private readonly CancellationTokenSource _lifetime = new();
+    private CancellationTokenSource? _activeLoad;
+    private int _loadGeneration;
+    private ProfileCategoriesResponse? _categories;
+    private bool _loading;
+    private bool _error;
+    private bool _unavailable;
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var generation = ++_loadGeneration;
+        var profileId = ProfileId;
+        var requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var previousLoad = _activeLoad;
+        _activeLoad = requestCancellation;
+        previousLoad?.Cancel();
+
+        _loading = true;
+        _error = false;
+        _unavailable = false;
+        _categories = null;
+        var cancellationToken = requestCancellation.Token;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"api/budget-profiles/{profileId}/categories");
+            request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+            using var response = await Http.SendAsync(request, cancellationToken);
+            if (generation != _loadGeneration) return;
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                Authentication.NotifySignedOut();
+                Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString($"/budget-profiles/{profileId}/categories")}", replace: true);
+                return;
+            }
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                _unavailable = true;
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            var categories = await response.Content.ReadFromJsonAsync<ProfileCategoriesResponse>(cancellationToken: cancellationToken)
+                ?? throw new JsonException("The categories are missing.");
+            if (generation == _loadGeneration) _categories = categories;
+        }
+        catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            if (generation == _loadGeneration) _error = true;
+        }
+        finally
+        {
+            if (generation == _loadGeneration) _loading = false;
+            if (ReferenceEquals(_activeLoad, requestCancellation)) _activeLoad = null;
+            requestCancellation.Dispose();
+        }
+    }
+
+    private static string RoleLabel(string role) => role switch
+    {
+        "owner" => "Owner",
+        "editor" => "Editor",
+        "view_only" => "View only",
+        _ => "Unavailable"
+    };
+
+    private static string KindLabel(string kind) => kind switch
+    {
+        "income" => "Income",
+        "savings" => "Savings",
+        "debt" => "Debt",
+        _ => "Unavailable"
+    };
+
+    public void Dispose()
+    {
+        _activeLoad?.Cancel();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
+}
