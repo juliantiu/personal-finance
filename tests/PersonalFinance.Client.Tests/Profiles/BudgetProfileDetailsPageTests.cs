@@ -155,7 +155,7 @@ public sealed class BudgetProfileDetailsPageTests
             if (Unauthorized) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
             if (NotFound) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             var details = new ProfileDetailsResponse(id, "Shared home", "GBP", ["USD"], "view_only",
-                [new ProfileCategoryDetailsResponse("Income", "income"), new ProfileCategoryDetailsResponse("Savings", "savings"), new ProfileCategoryDetailsResponse("Debt", "debt")],
+                [new ProfileCategoryDetailsResponse(Guid.NewGuid(), "Income", "income"), new ProfileCategoryDetailsResponse(Guid.NewGuid(), "Savings", "savings"), new ProfileCategoryDetailsResponse(Guid.NewGuid(), "Debt", "debt")],
                 [new ProfilePaymentMethodDetailsResponse("cash")], [new ProfileTagDetailsResponse("IOU", "iou")]);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(details) });
         }
@@ -186,7 +186,7 @@ public sealed class BudgetProfileDetailsPageTests
         public static HttpResponseMessage ProfileResponse(Guid id, string name, string currency, string role)
         {
             var details = new ProfileDetailsResponse(id, name, currency, [], role,
-                [new ProfileCategoryDetailsResponse("Income", "income")],
+                [new ProfileCategoryDetailsResponse(Guid.NewGuid(), "Income", "income")],
                 [new ProfilePaymentMethodDetailsResponse("cash")],
                 [new ProfileTagDetailsResponse("IOU", "iou")]);
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(details) };

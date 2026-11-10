@@ -19,7 +19,7 @@ public sealed class ProfileCategoriesPageTests
     [InlineData("owner", "Owner")]
     [InlineData("editor", "Editor")]
     [InlineData("view_only", "View only")]
-    public async Task Participants_review_saved_names_and_system_meanings_without_mutation_controls(string role, string label)
+    public async Task Participants_review_categories_and_only_writers_receive_mutation_controls(string role, string label)
     {
         var id = Guid.NewGuid();
         var handler = new StubHandler((profileId, _) => Task.FromResult(Categories(profileId, role)));
@@ -31,12 +31,26 @@ public sealed class ProfileCategoriesPageTests
         Assert.Contains($"Your access: {label}", page.Markup);
         var items = page.FindAll("ul[aria-label='Profile categories'] li");
         Assert.Equal(3, items.Count);
-        Assert.Contains(items, item => item.TextContent.Contains("Wages") && item.TextContent.Contains("System category: Income"));
-        Assert.Contains(items, item => item.TextContent.Contains("Rainy day") && item.TextContent.Contains("System category: Savings"));
-        Assert.Contains(items, item => item.TextContent.Contains("Loans") && item.TextContent.Contains("System category: Debt"));
+        Assert.Contains(items, item => item.TextContent.Contains("System category: Income"));
+        Assert.Contains(items, item => item.TextContent.Contains("System category: Savings"));
+        Assert.Contains(items, item => item.TextContent.Contains("System category: Debt"));
         Assert.Contains($"href=\"/budget-profiles/{id}\"", page.Markup);
-        Assert.Empty(page.FindAll("input, textarea, form"));
-        Assert.DoesNotContain(page.FindAll("button"), button => button.TextContent.Contains("Save") || button.TextContent.Contains("Delete"));
+        if (role == "view_only")
+        {
+            Assert.Contains(items, item => item.TextContent.Contains("Wages"));
+            Assert.Contains(items, item => item.TextContent.Contains("Rainy day"));
+            Assert.Contains(items, item => item.TextContent.Contains("Loans"));
+            Assert.Empty(page.FindAll("input, textarea, form"));
+            Assert.DoesNotContain(page.FindAll("button"), button => button.TextContent.Contains("Save") || button.TextContent.Contains("Add category"));
+        }
+        else
+        {
+            Assert.Contains(page.FindAll("input"), input => input.GetAttribute("value") == "Wages");
+            Assert.Contains(page.FindAll("input"), input => input.GetAttribute("value") == "Rainy day");
+            Assert.Contains(page.FindAll("input"), input => input.GetAttribute("value") == "Loans");
+            Assert.Contains(page.FindAll("button"), button => button.TextContent.Contains("Add category"));
+            Assert.Equal(3, page.FindAll("button").Count(button => button.TextContent.Contains("Save category")));
+        }
         Assert.True(handler.CredentialsIncluded);
         Assert.Equal(new[] { id }, handler.RequestedIds);
     }
@@ -160,6 +174,56 @@ public sealed class ProfileCategoriesPageTests
         Assert.Equal(new[] { first, second }, handler.RequestedIds);
     }
 
+    [Fact]
+    public async Task Writer_can_create_and_edit_and_conflict_reload_preserves_the_draft()
+    {
+        var id = Guid.NewGuid();
+        var handler = new MutationHandler(id);
+        await using var context = CreateContext(handler, id);
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("Wages", page.Markup));
+
+        page.FindAll("input")[0].Change("Home");
+        page.FindAll("input")[1].Change("Family budget");
+        page.FindAll("button").Single(button => button.TextContent.Contains("Add category")).Click();
+        page.WaitForAssertion(() => Assert.Single(handler.Writes));
+        Assert.Contains("\"name\":\"Home\"", handler.Writes[0]);
+        Assert.Contains("X-CSRF-TOKEN", handler.Headers);
+
+        page.FindAll("input").Single(input => input.GetAttribute("value") == "Wages").Change("Draft earnings");
+        page.FindAll("button").First(button => button.TextContent.Contains("Save category")).Click();
+        page.WaitForAssertion(() => Assert.Contains("changed since you opened it", page.Markup));
+        page.FindAll("button").Single(button => button.TextContent.Contains("Load latest category")).Click();
+        page.WaitForAssertion(() => Assert.Contains("Draft earnings", page.Markup));
+        Assert.Contains(page.FindAll("input"), input => input.GetAttribute("value") == "Draft earnings");
+        page.FindAll("button").First(button => button.TextContent.Contains("Save category")).Click();
+        page.WaitForAssertion(() => Assert.Contains("Draft earnings", page.Markup));
+        Assert.Contains(handler.Writes, body => body.Contains("Draft earnings", StringComparison.Ordinal));
+        Assert.Contains(handler.Writes, body => body.Contains("BAUG", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Unknown_create_outcome_requires_review_before_the_user_can_retry()
+    {
+        var id = Guid.NewGuid();
+        var handler = new MutationHandler(id, loseCreateResponse: true);
+        await using var context = CreateContext(handler, id);
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("Wages", page.Markup));
+
+        page.FindAll("input")[0].Change("Possibly saved");
+        page.FindAll("button").Single(button => button.TextContent.Contains("Add category")).Click();
+        page.WaitForAssertion(() => Assert.Contains("Review the saved categories", page.Markup));
+        var addButton = page.FindAll("button").Single(button => button.TextContent.Contains("Add category"));
+        Assert.True(addButton.HasAttribute("disabled"));
+        Assert.Single(handler.Writes);
+
+        page.FindAll("button").Single(button => button.TextContent.Contains("Review categories")).Click();
+        page.WaitForAssertion(() => Assert.DoesNotContain("Review the saved categories", page.Markup));
+        Assert.Single(handler.Writes);
+        Assert.False(page.FindAll("button").Single(button => button.TextContent.Contains("Add category")).HasAttribute("disabled"));
+    }
+
     private static HttpResponseMessage Categories(Guid id, string role = "owner", bool empty = false, string incomeName = "Wages") => new(HttpStatusCode.OK)
     {
         Content = JsonContent.Create(new
@@ -167,9 +231,9 @@ public sealed class ProfileCategoriesPageTests
             profileId = id, role,
             categories = empty ? [] : new[]
             {
-                new { id = Guid.NewGuid(), name = incomeName, kind = "income" },
-                new { id = Guid.NewGuid(), name = "Rainy day", kind = "savings" },
-                new { id = Guid.NewGuid(), name = "Loans", kind = "debt" }
+                new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = incomeName, kind = "income", comment = (string?)null, version = "AQID" },
+                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Rainy day", kind = "savings", comment = (string?)null, version = "AQIE" },
+                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Loans", kind = "debt", comment = (string?)null, version = "AQIF" }
             }
         })
     };
@@ -210,4 +274,50 @@ public sealed class ProfileCategoriesPageTests
             finally { if (attempt == 1) FirstRequestFinished.TrySetResult(); }
         }
     }
+
+    private sealed class MutationHandler(Guid profileId, bool loseCreateResponse = false) : HttpMessageHandler
+    {
+        private int _reads;
+        private int _edits;
+        public List<string> Writes { get; } = [];
+        public List<string> Headers { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/auth/session")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { authenticated = true, email = "person@example.test" }) };
+            if (request.RequestUri.AbsolutePath == "/api/auth/antiforgery")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { requestToken = "synthetic-csrf" }) };
+            if (request.Method == HttpMethod.Get)
+            {
+                _reads++;
+                return CategoriesForMutation(profileId, currentVersion: _reads > 2 ? "BAUG" : "AQID", categoryName: _edits > 1 ? "Draft earnings" : "Wages");
+            }
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            Writes.Add(body);
+            Headers.AddRange(request.Headers.Select(header => header.Key));
+            if (request.Method == HttpMethod.Post)
+            {
+                if (loseCreateResponse) throw new HttpRequestException("Synthetic lost create response.");
+                return new HttpResponseMessage(HttpStatusCode.Created) { Content = JsonContent.Create(new { id = Guid.NewGuid() }) };
+            }
+            _edits++;
+            return new HttpResponseMessage(_edits == 1 ? HttpStatusCode.Conflict : HttpStatusCode.OK);
+        }
+    }
+
+    private static HttpResponseMessage CategoriesForMutation(Guid id, string currentVersion, string categoryName) => new(HttpStatusCode.OK)
+    {
+        Content = JsonContent.Create(new
+        {
+            profileId = id,
+            role = "owner",
+            categories = new[]
+            {
+                new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = categoryName, kind = "income", comment = (string?)null, version = currentVersion },
+                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Savings", kind = "savings", comment = (string?)null, version = "AQIE" },
+                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Debt", kind = "debt", comment = (string?)null, version = "AQIF" }
+            }
+        })
+    };
 }

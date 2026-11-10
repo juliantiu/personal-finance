@@ -1,6 +1,6 @@
 # UC-004 — Maintain categories and subcategories — Implementation plan
 
-Status: **Phase 1 approved and completed 10 November 2026. Phases 2–7 are not approved or complete. Open decisions below remain unresolved for their affected phases.**
+Status: **Phases 1–2 approved, completed, and verified 10 November 2026. Phases 3–7 are not approved or complete. Decisions below remain unresolved for their affected phases.**
 
 ## Sources and current baseline
 
@@ -37,9 +37,9 @@ Recommendations here are proposals for discussion, not accepted requirements or 
 
 | Decision | Question and proposed treatment | Gate |
 | --- | --- | --- |
-| Names | What requiredness, trimming, maximum length, and duplicate-name rules apply? Suggested: require a nonblank trimmed name, retain the existing category limit of 100 characters for both item types, and allow duplicate display names while identifying records by ID. If uniqueness is wanted, decide scope, case comparison, and whether deleted names remain reserved. | Phases 2–3 |
-| Comments | What maximum length and whitespace/empty-value behavior should comments use? Suggested: optional plain text, a 2,000-character limit, preserve meaningful line breaks, and normalize empty/whitespace-only input to absent. These limits are not specified in the source documents. | Phases 2–3 |
-| Concurrent changes | Should stale edits/deletions be rejected instead of overwriting an accepted change? Suggested: optimistic concurrency, a conflict response, preserved draft, and explicit refresh before retry. Define the version boundary and parent-delete/child-write interaction before choosing the persistence mechanism. | Phases 2–5 |
+| Names | **Resolved by the user for Phases 2–3:** require a nonblank name after trimming, maximum 100 characters after trimming, and allow duplicate display names identified by record ID. | Applied in Phases 2–3 |
+| Comments | **Resolved by the user for Phases 2–3:** optional plain text, maximum 2,000 characters, normalize empty/whitespace-only input to absent, and preserve meaningful interior line breaks. | Applied in Phases 2–3 |
+| Concurrent changes | **Resolved for Phase 2:** optimistic concurrency per edited category record; a stale edit returns a conflict and preserves the draft until the user reloads the current version. Parent-retirement/child-write interaction and the concurrency boundary for later deletion phases remain open. | Phase 2 complete; revisit Phases 3–5 |
 | Editing retained items | May writers rename or edit comments on explicitly deleted items and children blocked by a deleted parent? Historical financial correction access is confirmed; post-deletion metadata editing is not. Suggested: permit metadata corrections without clearing deletion facts, while rejecting new children under a deleted parent. | Phases 4–5 |
 | Repeated deletion | What should happen when a retained item is deleted again, or an individually active child is explicitly deleted after its parent? Suggested: repeated deletion preserves the original timestamp; a first explicit child deletion records its independent fact even when the parent already blocks tracking. Resolve how this interacts with a stale version. | Phases 4–5 |
 | Savings setup boundary | The logical schema requires one SavingsPlan row per Savings subcategory, even when its goal and reset note are unset. Suggested: create that empty settings row atomically with a Savings subcategory, leaving goal/reset-note editing and balances to UC-014. Confirm this minimal prerequisite rather than expanding UC-004 into savings management. | Phase 3 |
@@ -89,7 +89,7 @@ Within each phase: resolve its decisions, present the concrete phase plan for ap
 
 ### Phase 2 — Create ordinary categories and edit category metadata
 
-**Status:** Not started; gated by agreed name, comment, and concurrency policies.
+**Status:** Complete — approved, implemented, and verified 10 November 2026. See [Phase 2 verification](verification-phase-2.md).
 
 - Add category creation plus rename/comment updates across Domain, Application, Infrastructure, contracts/API, and the client. Permit owner/editor writes only. Allow system category name/comment edits while keeping their kinds fixed.
 - Extend category persistence for ordinary kind, comments, and the agreed version mechanism. Widen the kind column to accommodate `ordinary`, update its check constraint, and retain filtered uniqueness for system kinds. Do not impose an unapproved name uniqueness constraint.
@@ -97,6 +97,8 @@ Within each phase: resolve its decisions, present the concrete phase plan for ap
 - Provide field errors, in-flight submission guards, read-after-save refresh, explicit failure recovery, and an unknown-create-outcome path that requires review before retrying.
 
 **Red/green evidence:** Exercise the agreed input boundaries; multiple ordinary categories; system and ordinary rename/comment changes; immutable ID/kind/profile; owner/editor success; viewer denial; cross-profile ID substitution; forged fields; antiforgery failure; and the agreed stale-edit conflict. Use LocalDB rollback and migration-upgrade tests preserving existing account/session/profile/default data. Verify browser create/edit/reload and component error/draft behavior, including a lost create response without automatic replay.
+
+**Completion evidence:** Added the category Domain behavior, validated Mediator commands, access-scoped EF writes, row-version concurrency, category comments, ordinary-category persistence, no-store/antiforgery-protected API writes, and editable category management UI. The profile overview now renders by stable category ID. Existing system category IDs and kinds remain fixed; duplicate names are allowed. See [Phase 2 verification](verification-phase-2.md) for red/green and regression results.
 
 **Exit criterion:** An authorized writer can create and edit categories through the UI, and a viewer can read saved metadata. Failed, unauthorized, invalid, and stale writes leave accepted data intact under the agreed policy.
 

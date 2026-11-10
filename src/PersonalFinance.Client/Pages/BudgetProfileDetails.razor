@@ -49,7 +49,7 @@
             <ul aria-label="Profile categories">
                 @foreach (var category in _profile.Categories)
                 {
-                    <li @key="category.Kind">@category.Name</li>
+                    <li @key="category.Id">@category.Name</li>
                 }
             </ul>
             <MudButton Href="@($"/budget-profiles/{ProfileId}/categories")" Variant="Variant.Text" Color="Color.Primary" Class="mt-2">Review categories</MudButton>

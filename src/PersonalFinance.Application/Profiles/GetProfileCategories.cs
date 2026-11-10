@@ -2,7 +2,7 @@ using Mediator;
 
 namespace PersonalFinance.Application.Profiles;
 
-public sealed record ProfileCategory(Guid Id, string Name, string Kind);
+public sealed record ProfileCategory(Guid Id, string Name, string Kind, string? Comment, byte[] Version);
 
 public sealed record ProfileCategories(Guid ProfileId, string Role, IReadOnlyList<ProfileCategory> Categories);
 

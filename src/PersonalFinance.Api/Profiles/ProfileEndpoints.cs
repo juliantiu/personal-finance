@@ -12,6 +12,8 @@ public static class ProfileEndpoints
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}", GetAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/currency-settings", GetCurrencySettingsAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/categories", GetCategoriesAsync);
+        endpoints.MapPost("/api/budget-profiles/{profileId:guid}/categories", CreateCategoryAsync);
+        endpoints.MapPut("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}", UpdateCategoryAsync);
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
     }
 
@@ -23,11 +25,60 @@ public static class ProfileEndpoints
             var categories = await mediator.Send(new GetProfileCategoriesQuery(profileId), cancellationToken);
             if (categories is null) return Results.NotFound();
             return Results.Ok(new ProfileCategoriesResponse(categories.ProfileId, categories.Role,
-                categories.Categories.Select(category => new ProfileCategoryResponse(category.Id, category.Name, category.Kind)).ToArray()));
+                categories.Categories.Select(category => new ProfileCategoryResponse(category.Id, category.Name, category.Kind,
+                    category.Comment, Convert.ToBase64String(category.Version))).ToArray()));
         }
         catch (UnauthenticatedAccountException)
         {
             return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign in to access this budget profile.");
+        }
+    }
+
+    private static async Task<IResult> CreateCategoryAsync(Guid profileId, CreateProfileCategoryRequest request, IMediator mediator,
+        ICurrentAccount currentAccount, IAntiforgery antiforgery, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            if (await currentAccount.GetAccountIdAsync(cancellationToken) is null) throw new UnauthenticatedAccountException();
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Problem(statusCode: 400, title: "The category request could not be validated. Refresh the page and try again.");
+            }
+            var id = await mediator.Send(new CreateProfileCategoryCommand(profileId, request.Name, request.Comment), cancellationToken);
+            return id is null ? Results.NotFound() : Results.Created($"/api/budget-profiles/{profileId}/categories/{id}", new CreatedProfileCategoryResponse(id.Value));
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: 401, title: "Sign in to manage profile categories.");
+        }
+    }
+
+    private static async Task<IResult> UpdateCategoryAsync(Guid profileId, Guid categoryId, UpdateProfileCategoryRequest request,
+        IMediator mediator, ICurrentAccount currentAccount, IAntiforgery antiforgery, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            if (await currentAccount.GetAccountIdAsync(cancellationToken) is null) throw new UnauthenticatedAccountException();
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Problem(statusCode: 400, title: "The category request could not be validated. Refresh the page and try again.");
+            }
+            var result = await mediator.Send(new UpdateProfileCategoryCommand(profileId, categoryId,
+                request.Name, request.Comment, request.Version), cancellationToken);
+            return result switch
+            {
+                UpdateProfileCategoryResult.Updated => Results.Ok(),
+                UpdateProfileCategoryResult.Conflict => Results.Conflict(new { title = "This category changed since you opened it. Your draft is still available; reload the latest category before saving again." }),
+                _ => Results.NotFound()
+            };
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: 401, title: "Sign in to manage profile categories.");
         }
     }
 
@@ -65,7 +116,7 @@ public static class ProfileEndpoints
                 profile.MainCurrency,
                 profile.AdditionalCurrencies,
                 profile.Role,
-                profile.Categories.Select(category => new ProfileCategoryDetailsResponse(category.Name, category.Kind)).ToArray(),
+                profile.Categories.Select(category => new ProfileCategoryDetailsResponse(category.Id, category.Name, category.Kind)).ToArray(),
                 profile.PaymentMethods.Select(method => new ProfilePaymentMethodDetailsResponse(method.Kind)).ToArray(),
                 profile.Tags.Select(tag => new ProfileTagDetailsResponse(tag.Name, tag.Role)).ToArray()));
         }

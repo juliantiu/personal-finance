@@ -447,10 +447,14 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
                     b.Property<string>("Kind")
                         .IsRequired()
-                        .HasMaxLength(7)
-                        .HasColumnType("nvarchar(7)");
+                        .HasMaxLength(8)
+                        .HasColumnType("nvarchar(8)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -460,6 +464,12 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ProfileId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<byte[]>("Version")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ProfileId", "Kind")
@@ -468,7 +478,7 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
 
                     b.ToTable("Categories", null, t =>
                         {
-                            t.HasCheckConstraint("CK_Categories_Kind", "[Kind] IN ('income', 'savings', 'debt')");
+                            t.HasCheckConstraint("CK_Categories_Kind", "[Kind] IN ('income', 'savings', 'debt', 'ordinary')");
                         });
                 });
 

@@ -8,18 +8,23 @@ public sealed class EfProfileCategoriesReader(AccountIdentityDbContext database)
 {
     public async Task<ProfileCategories?> GetAsync(Guid accountId, Guid profileId, CancellationToken cancellationToken)
     {
-        return await database.BudgetProfiles.AsNoTracking()
+        var profile = await database.BudgetProfiles.AsNoTracking()
             .Where(profile => profile.Id == profileId &&
                 (profile.OwnerAccountId == accountId || database.ProfileAccess.Any(access =>
                     access.ProfileId == profile.Id && access.AccountId == accountId)))
-            .Select(profile => new ProfileCategories(
+            .Select(profile => new
+            {
                 profile.Id,
-                profile.OwnerAccountId == accountId ? "owner" : database.ProfileAccess
+                Role = profile.OwnerAccountId == accountId ? "owner" : database.ProfileAccess
                     .Where(access => access.ProfileId == profile.Id && access.AccountId == accountId)
                     .Select(access => access.Role).First(),
-                database.Categories.Where(category => category.ProfileId == profile.Id)
+                Categories = database.Categories.Where(category => category.ProfileId == profile.Id)
                     .OrderBy(category => category.Kind).ThenBy(category => category.Id)
-                    .Select(category => new ProfileCategory(category.Id, category.Name, category.Kind)).ToList()))
+                    .Select(category => new { category.Id, category.Name, category.Kind, category.Comment, category.Version }).ToList()
+            })
             .SingleOrDefaultAsync(cancellationToken);
+        return profile is null ? null : new ProfileCategories(profile.Id, profile.Role,
+            profile.Categories.Select(category => new ProfileCategory(category.Id, category.Name, category.Kind,
+                category.Comment, category.Version)).ToArray());
     }
 }

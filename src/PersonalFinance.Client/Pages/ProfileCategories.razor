@@ -9,7 +9,6 @@
 @inject NavigationManager Navigation
 @inject BffAuthenticationStateProvider Authentication
 
-@* Comment ID: CLASS-054. Lets current profile participants review authoritative category names and system meanings without mutation controls. *@
 <PageTitle>Categories</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Medium" Class="py-8 px-4">
@@ -40,6 +39,30 @@
 
         <MudPaper Outlined="true" Class="pa-4 mt-5">
             <MudText Typo="Typo.h6" HtmlTag="h2">Profile categories</MudText>
+            @if (IsWriter)
+            {
+                <MudPaper Outlined="true" Class="pa-4 my-4">
+                    <MudText Typo="Typo.subtitle1" HtmlTag="h3">Add category</MudText>
+                    <MudTextField T="string" Label="Category name" Value="_newCategoryName" ValueChanged="NewCategoryNameChanged"
+                                  MaxLength="100" Disabled="_creating || _createUncertain" />
+                    <MudTextField T="string" Label="Comment (optional)" Value="_newCategoryComment" ValueChanged="NewCategoryCommentChanged"
+                                  Lines="3" MaxLength="2000" Disabled="_creating || _createUncertain" />
+                    <MudButton OnClick="CreateCategoryAsync" Disabled="_creating || _createUncertain" Variant="Variant.Filled" Color="Color.Primary">
+                        @(_creating ? "Creating…" : "Add category")
+                    </MudButton>
+                    @if (_createUncertain)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mt-3" role="alert">
+                            We couldn't confirm whether this category was created. Review the saved categories before choosing to retry.
+                        </MudAlert>
+                        <MudButton OnClick="ReviewAfterUncertainCreateAsync" Disabled="_creating" Variant="Variant.Outlined">Review categories</MudButton>
+                    }
+                </MudPaper>
+            }
+            @if (_formError is not null)
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-3" role="alert">@_formError</MudAlert>
+            }
             @if (_categories.Categories.Count == 0)
             {
                 <MudText role="status">No categories are available for this profile.</MudText>
@@ -50,8 +73,41 @@
                     @foreach (var category in _categories.Categories)
                     {
                         <li @key="category.Id" class="mb-3">
-                            <MudText>@category.Name</MudText>
-                            <MudText Typo="Typo.body2">System category: @KindLabel(category.Kind)</MudText>
+                            @if (IsWriter)
+                            {
+                                <MudText Typo="Typo.subtitle1">@KindLabel(category.Kind) category</MudText>
+                                <MudTextField T="string" Label="Category name" Value="GetDraftName(category)"
+                                              ValueChanged="value => SetDraftName(category.Id, value)" MaxLength="100" Disabled="_savingCategoryId == category.Id" />
+                                <MudTextField T="string" Label="Comment (optional)" Value="GetDraftComment(category)"
+                                              ValueChanged="value => SetDraftComment(category.Id, value)" Lines="3" MaxLength="2000" Disabled="_savingCategoryId == category.Id" />
+                                <MudButton OnClick="() => SaveCategoryAsync(category)" Disabled="_savingCategoryId == category.Id"
+                                           Variant="Variant.Outlined" Color="Color.Primary">
+                                    @(_savingCategoryId == category.Id ? "Saving…" : "Save category")
+                                </MudButton>
+                                @if (_conflictCategoryId == category.Id)
+                                {
+                                    <MudAlert Severity="Severity.Warning" Class="mt-2" role="alert">
+                                        This category changed since you opened it. Your draft is still available. Load the latest version, review your draft, then save again.
+                                    </MudAlert>
+                                    <MudButton OnClick="() => ReloadAfterConflictAsync(category.Id)" Variant="Variant.Outlined">Load latest category</MudButton>
+                                }
+                            }
+                            else
+                            {
+                                <MudText>@category.Name</MudText>
+                                @if (!string.IsNullOrWhiteSpace(category.Comment))
+                                {
+                                    <MudText Typo="Typo.body2" Style="white-space: pre-wrap">Comment: @category.Comment</MudText>
+                                }
+                            }
+                            @if (category.Kind == "ordinary")
+                            {
+                                <MudText Typo="Typo.body2">Category type: Ordinary</MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2">System category: @KindLabel(category.Kind)</MudText>
+                            }
                         </li>
                     }
                 </ul>
@@ -68,13 +124,25 @@
     private CancellationTokenSource? _activeLoad;
     private int _loadGeneration;
     private ProfileCategoriesResponse? _categories;
+    private readonly Dictionary<Guid, string> _draftNames = [];
+    private readonly Dictionary<Guid, string?> _draftComments = [];
     private bool _loading;
     private bool _error;
     private bool _unavailable;
+    private bool _creating;
+    private bool _createUncertain;
+    private Guid? _savingCategoryId;
+    private Guid? _conflictCategoryId;
+    private string _newCategoryName = string.Empty;
+    private string? _newCategoryComment;
+    private string? _formError;
+    private bool IsWriter => _categories?.Role is "owner" or "editor";
 
     protected override Task OnParametersSetAsync() => LoadAsync();
 
-    private async Task LoadAsync()
+    private Task LoadAsync() => LoadCategoriesAsync(preserveDrafts: false);
+
+    private async Task LoadCategoriesAsync(bool preserveDrafts)
     {
         var generation = ++_loadGeneration;
         var profileId = ProfileId;
@@ -87,6 +155,13 @@
         _error = false;
         _unavailable = false;
         _categories = null;
+        _formError = null;
+        if (!preserveDrafts)
+        {
+            _draftNames.Clear();
+            _draftComments.Clear();
+            _conflictCategoryId = null;
+        }
         var cancellationToken = requestCancellation.Token;
         try
         {
@@ -108,7 +183,15 @@
             response.EnsureSuccessStatusCode();
             var categories = await response.Content.ReadFromJsonAsync<ProfileCategoriesResponse>(cancellationToken: cancellationToken)
                 ?? throw new JsonException("The categories are missing.");
-            if (generation == _loadGeneration) _categories = categories;
+            if (generation == _loadGeneration)
+            {
+                _categories = categories;
+                foreach (var category in categories.Categories)
+                {
+                    _draftNames.TryAdd(category.Id, category.Name);
+                    _draftComments.TryAdd(category.Id, category.Comment);
+                }
+            }
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested) { }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
@@ -121,6 +204,141 @@
             if (ReferenceEquals(_activeLoad, requestCancellation)) _activeLoad = null;
             requestCancellation.Dispose();
         }
+    }
+
+    private async Task CreateCategoryAsync()
+    {
+        if (_creating || _createUncertain || !IsWriter) return;
+        _formError = null;
+        if (string.IsNullOrWhiteSpace(_newCategoryName)) { _formError = "Enter a category name."; return; }
+        if (_newCategoryName.Trim().Length > 100) { _formError = "Use at most 100 characters after trimming."; return; }
+        if (_newCategoryComment?.Length > 2000) { _formError = "Use at most 2,000 characters for a comment."; return; }
+
+        _creating = true;
+        var requestStarted = false;
+        try
+        {
+            var token = await GetAntiforgeryTokenAsync();
+            using var request = CredentialedRequest(HttpMethod.Post, $"api/budget-profiles/{ProfileId}/categories");
+            request.Headers.Add("X-CSRF-TOKEN", token);
+            request.Content = JsonContent.Create(new CreateProfileCategoryRequest(_newCategoryName, _newCategoryComment));
+            requestStarted = true;
+            using var response = await Http.SendAsync(request, _lifetime.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            if (response.StatusCode == HttpStatusCode.NotFound) { SetUnavailable(); return; }
+            if (response.StatusCode == HttpStatusCode.BadRequest)
+            {
+                _formError = "The category wasn't created. Check the name and comment, then try again.";
+                return;
+            }
+            if (response.StatusCode != HttpStatusCode.Created) { _createUncertain = true; return; }
+            _newCategoryName = string.Empty;
+            _newCategoryComment = null;
+            await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            if (requestStarted) _createUncertain = true;
+            else _formError = "We couldn't prepare the request. The category wasn't submitted. Try again.";
+        }
+        finally { _creating = false; }
+    }
+
+    private async Task SaveCategoryAsync(ProfileCategoryResponse category)
+    {
+        if (_savingCategoryId is not null || !IsWriter) return;
+        _formError = null;
+        var name = GetDraftName(category);
+        var comment = GetDraftComment(category);
+        if (string.IsNullOrWhiteSpace(name)) { _formError = "Enter a category name."; return; }
+        if (name.Trim().Length > 100) { _formError = "Use at most 100 characters after trimming."; return; }
+        if (comment?.Length > 2000) { _formError = "Use at most 2,000 characters for a comment."; return; }
+
+        _savingCategoryId = category.Id;
+        try
+        {
+            var token = await GetAntiforgeryTokenAsync();
+            using var request = CredentialedRequest(HttpMethod.Put, $"api/budget-profiles/{ProfileId}/categories/{category.Id}");
+            request.Headers.Add("X-CSRF-TOKEN", token);
+            request.Content = JsonContent.Create(new UpdateProfileCategoryRequest(name, comment, category.Version));
+            using var response = await Http.SendAsync(request, _lifetime.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            if (response.StatusCode == HttpStatusCode.NotFound) { SetUnavailable(); return; }
+            if (response.StatusCode == HttpStatusCode.Conflict)
+            {
+                _conflictCategoryId = category.Id;
+                return;
+            }
+            if (response.StatusCode == HttpStatusCode.BadRequest)
+            {
+                _formError = "The category wasn't saved. Check the name and comment, then try again.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            _conflictCategoryId = null;
+            await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            _formError = "We couldn't confirm that the category was saved. Review the latest category before trying again.";
+        }
+        finally { _savingCategoryId = null; }
+    }
+
+    private async Task ReloadAfterConflictAsync(Guid categoryId)
+    {
+        await LoadCategoriesAsync(preserveDrafts: true);
+        if (_categories?.Categories.Any(category => category.Id == categoryId) != true) SetUnavailable();
+    }
+
+    private async Task ReviewAfterUncertainCreateAsync()
+    {
+        await LoadAsync();
+        if (_categories is not null) _createUncertain = false;
+    }
+
+    private async Task<string> GetAntiforgeryTokenAsync()
+    {
+        using var request = CredentialedRequest(HttpMethod.Get, "api/auth/antiforgery");
+        using var response = await Http.SendAsync(request, _lifetime.Token);
+        if (response.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); throw new OperationCanceledException(_lifetime.Token); }
+        response.EnsureSuccessStatusCode();
+        var proof = await response.Content.ReadFromJsonAsync<AntiforgeryProof>(cancellationToken: _lifetime.Token);
+        return string.IsNullOrWhiteSpace(proof?.RequestToken) ? throw new JsonException("Missing request proof.") : proof.RequestToken;
+    }
+
+    private string GetDraftName(ProfileCategoryResponse category) => _draftNames.GetValueOrDefault(category.Id, category.Name);
+
+    private string? GetDraftComment(ProfileCategoryResponse category) => _draftComments.GetValueOrDefault(category.Id, category.Comment);
+
+    private void SetDraftName(Guid categoryId, string value) => _draftNames[categoryId] = value;
+
+    private void SetDraftComment(Guid categoryId, string? value) => _draftComments[categoryId] = value;
+
+    private void NewCategoryNameChanged(string value) => _newCategoryName = value;
+
+    private void NewCategoryCommentChanged(string? value) => _newCategoryComment = value;
+
+    private static HttpRequestMessage CredentialedRequest(HttpMethod method, string path)
+    {
+        var request = new HttpRequestMessage(method, path);
+        request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+        return request;
+    }
+
+    private void SetUnavailable()
+    {
+        _categories = null;
+        _unavailable = true;
+        _loading = false;
+    }
+
+    private void ReturnToLogin()
+    {
+        Authentication.NotifySignedOut();
+        Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString($"/budget-profiles/{ProfileId}/categories")}", replace: true);
     }
 
     private static string RoleLabel(string role) => role switch
@@ -136,6 +354,7 @@
         "income" => "Income",
         "savings" => "Savings",
         "debt" => "Debt",
+        "ordinary" => "Ordinary",
         _ => "Unavailable"
     };
 
@@ -145,4 +364,6 @@
         _lifetime.Cancel();
         _lifetime.Dispose();
     }
+
+    private sealed record AntiforgeryProof(string? RequestToken);
 }

@@ -1,6 +1,6 @@
 namespace PersonalFinance.Contracts.Profiles;
 
-public sealed record ProfileCategoryDetailsResponse(string Name, string Kind);
+public sealed record ProfileCategoryDetailsResponse(Guid Id, string Name, string Kind);
 
 public sealed record ProfilePaymentMethodDetailsResponse(string Kind);
 

@@ -46,7 +46,7 @@ public sealed class ProfileCategoriesBrowserTests
         var page = browser.Page;
         var ownedUrl = browser.ClientUrl + $"/budget-profiles/{ownedId}/categories";
         var sharedUrl = browser.ClientUrl + $"/budget-profiles/{sharedId}/categories";
-        await page.GotoAsync(ownedUrl);
+        await page.GotoAsync(browser.ClientUrl + $"/login?returnUrl=%2Fbudget-profiles%2F{ownedId}%2Fcategories");
         await Expect(page).ToHaveURLAsync(browser.ClientUrl + $"/login?returnUrl=%2Fbudget-profiles%2F{ownedId}%2Fcategories");
         await page.GetByLabel("Email address", new() { Exact = true }).FillAsync("categories-browser@example.test");
         await page.GetByLabel("Password", new() { Exact = true }).FillAsync("abcdefghijkl");
@@ -56,17 +56,31 @@ public sealed class ProfileCategoriesBrowserTests
         await Expect(page.GetByText("Your access: Owner", new() { Exact = true })).ToBeVisibleAsync();
         var categories = page.GetByRole(AriaRole.List, new() { Name = "Profile categories", Exact = true });
         await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(3);
-        await Expect(categories).ToContainTextAsync("Wages");
+        var incomeItem = categories.GetByRole(AriaRole.Listitem).Filter(new() { HasText = "System category: Income" });
+        var incomeName = incomeItem.GetByLabel("Category name", new() { Exact = true });
+        await Expect(incomeName).ToHaveValueAsync("Wages");
         await Expect(categories).ToContainTextAsync("System category: Income");
         await Expect(categories).ToContainTextAsync("System category: Savings");
         await Expect(categories).ToContainTextAsync("System category: Debt");
+
+        await incomeName.FillAsync("Wages revised");
+        await incomeItem.GetByRole(AriaRole.Button, new() { Name = "Save category", Exact = true }).ClickAsync();
+        await Expect(incomeName).ToHaveValueAsync("Wages revised");
+        await page.GetByLabel("Category name", new() { Exact = true }).First.FillAsync("Wages revised");
+        await page.GetByLabel("Comment (optional)", new() { Exact = true }).First.FillAsync("duplicate labels are allowed");
+        await page.GetByRole(AriaRole.Button, new() { Name = "Add category", Exact = true }).ClickAsync();
+        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(4);
+        var ordinaryItem = categories.GetByRole(AriaRole.Listitem).Filter(new() { HasText = "Category type: Ordinary" });
+        await Expect(incomeName).ToHaveValueAsync("Wages revised");
+        await Expect(ordinaryItem.GetByLabel("Category name", new() { Exact = true })).ToHaveValueAsync("Wages revised");
 
         await page.GetByRole(AriaRole.Link, new() { Name = "Back to profile", Exact = true }).ClickAsync();
         await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Category review home", Exact = true })).ToBeVisibleAsync();
         await page.GetByRole(AriaRole.Link, new() { Name = "Review categories", Exact = true }).ClickAsync();
         await Expect(page).ToHaveURLAsync(ownedUrl);
         await page.ReloadAsync();
-        await Expect(categories).ToContainTextAsync("Wages");
+        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(4);
+        await Expect(incomeItem.GetByLabel("Category name", new() { Exact = true })).ToHaveValueAsync("Wages revised");
 
         await page.RouteAsync("**/api/budget-profiles/*/categories", route => route.AbortAsync());
         await page.ReloadAsync();
@@ -74,13 +88,13 @@ public sealed class ProfileCategoriesBrowserTests
         await Expect(categories).ToHaveCountAsync(0);
         await page.UnrouteAsync("**/api/budget-profiles/*/categories");
         await page.GetByRole(AriaRole.Button, new() { Name = "Try again", Exact = true }).ClickAsync();
-        await Expect(categories).ToContainTextAsync("Wages");
+        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(4);
 
         await page.SetViewportSizeAsync(390, 844);
         await page.GotoAsync(sharedUrl);
         await Expect(page.GetByText("Your access: View only", new() { Exact = true })).ToBeVisibleAsync();
         await Expect(categories).ToContainTextAsync("Shared earnings");
-        await Expect(page.GetByText("Wages", new() { Exact = true })).ToHaveCountAsync(0);
+        await Expect(page.GetByText("Wages revised", new() { Exact = true })).ToHaveCountAsync(0);
         await page.ReloadAsync();
         await Expect(categories).ToContainTextAsync("Shared earnings");
         Assert.True(await page.EvaluateAsync<bool>("document.documentElement.scrollWidth <= window.innerWidth"));
