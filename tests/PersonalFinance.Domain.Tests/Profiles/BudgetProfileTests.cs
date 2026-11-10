@@ -79,4 +79,21 @@ public sealed class BudgetProfileTests
         Assert.Equal("USD", Assert.Single(profile.AdditionalCurrencies));
         Assert.False(profile.AdditionalCurrencies is string[]);
     }
+
+    [Fact]
+    public void Profile_currency_configuration_accepts_none_or_the_supported_alternative()
+    {
+        Assert.Empty(ProfileCurrencyConfiguration.Create("GBP", null).AdditionalCurrencies);
+        Assert.Equal("USD", Assert.Single(ProfileCurrencyConfiguration.Create("GBP", ["USD"]).AdditionalCurrencies));
+    }
+
+    [Theory]
+    [InlineData("EUR")]
+    [InlineData("GBP")]
+    public void Profile_currency_configuration_rejects_unsupported_or_main_currency_as_additional(string additional) =>
+        Assert.Throws<ArgumentException>(() => ProfileCurrencyConfiguration.Create("GBP", [additional]));
+
+    [Fact]
+    public void Profile_currency_configuration_rejects_more_than_one_additional_currency() =>
+        Assert.Throws<ArgumentException>(() => ProfileCurrencyConfiguration.Create("GBP", ["USD", "EUR"]));
 }

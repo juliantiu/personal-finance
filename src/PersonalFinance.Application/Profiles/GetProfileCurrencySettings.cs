@@ -9,6 +9,7 @@ public sealed record ProfileCurrencySettings(
     string MainCurrency,
     IReadOnlyList<string> AdditionalCurrencies,
     string Role,
+    long ConfigurationVersion,
     IReadOnlyList<SupportedProfileCurrency> SupportedCurrencies);
 
 public interface IProfileCurrencySettingsReader

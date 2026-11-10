@@ -424,6 +424,11 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                         .HasMaxLength(3)
                         .HasColumnType("nvarchar(3)");
 
+                    b.Property<long>("CurrencySettingsVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)

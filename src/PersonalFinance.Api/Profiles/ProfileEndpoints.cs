@@ -11,6 +11,7 @@ public static class ProfileEndpoints
         endpoints.MapGet("/api/budget-profiles", ListAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}", GetAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/currency-settings", GetCurrencySettingsAsync);
+        endpoints.MapPut("/api/budget-profiles/{profileId:guid}/currency-settings", UpdateCurrencySettingsAsync);
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
     }
 
@@ -26,12 +27,44 @@ public static class ProfileEndpoints
                 settings.MainCurrency,
                 settings.AdditionalCurrencies,
                 settings.Role,
+                settings.ConfigurationVersion,
                 settings.SupportedCurrencies.Select(currency =>
                     new SupportedCurrencyResponse(currency.Code, currency.Name, currency.Symbol)).ToArray()));
         }
         catch (UnauthenticatedAccountException)
         {
             return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign in to access this budget profile.");
+        }
+    }
+
+    private static async Task<IResult> UpdateCurrencySettingsAsync(Guid profileId, UpdateProfileCurrencySettingsRequest request,
+        IMediator mediator, ICurrentAccount currentAccount, IAntiforgery antiforgery, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            if (await currentAccount.GetAccountIdAsync(cancellationToken) is null) throw new UnauthenticatedAccountException();
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Problem(statusCode: 400, title: "The currency settings request could not be validated. Refresh and try again.");
+            }
+
+            var result = await mediator.Send(new UpdateProfileCurrencySettingsCommand(
+                profileId, request.AdditionalCurrencies, request.ConfigurationVersion), cancellationToken);
+            return result switch
+            {
+                ProfileCurrencySettingsUpdateResult.Updated => Results.NoContent(),
+                ProfileCurrencySettingsUpdateResult.NotFound => Results.NotFound(),
+                ProfileCurrencySettingsUpdateResult.Forbidden => Results.Problem(statusCode: 403, title: "You can't change currency settings for this profile."),
+                ProfileCurrencySettingsUpdateResult.Invalid => Results.Problem(statusCode: 400, title: "Additional currencies must be supported and different from the main currency."),
+                ProfileCurrencySettingsUpdateResult.Conflict => Results.Problem(statusCode: 409, title: "Currency settings changed since you opened them. Reload the latest settings before saving."),
+                _ => Results.Problem(statusCode: 500, title: "Currency settings could not be saved.")
+            };
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: 401, title: "Sign in to change currency settings.");
         }
     }
 

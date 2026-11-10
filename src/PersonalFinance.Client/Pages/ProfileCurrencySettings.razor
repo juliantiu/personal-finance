@@ -9,7 +9,6 @@
 @inject NavigationManager Navigation
 @inject BffAuthenticationStateProvider Authentication
 
-@* Comment ID: CLASS-046. Shows the current profile's saved currencies and supported choices to authorized participants. *@
 <PageTitle>Currency settings</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Medium" Class="py-8 px-4">
@@ -44,6 +43,33 @@
             <MudText>Additional currencies: @(_settings.AdditionalCurrencies.Count == 0 ? "None" : string.Join(", ", _settings.AdditionalCurrencies))</MudText>
         </MudPaper>
 
+        @if (_saveError is not null)
+        {
+            <MudAlert Severity="@(_saveUncertain ? Severity.Warning : Severity.Error)" Class="mt-4" role="alert">@_saveError</MudAlert>
+            <MudButton OnClick="ReloadLatestAsync" Disabled="_saving || _loading" Variant="Variant.Outlined" Class="mt-2">Reload saved settings</MudButton>
+        }
+        @if (_saved)
+        {
+            <MudAlert Severity="Severity.Success" Class="mt-4" role="status">Currency settings saved.</MudAlert>
+        }
+
+        <MudPaper Outlined="true" Class="pa-4 mt-4">
+            <MudText Typo="Typo.h6" HtmlTag="h2">Configure currencies</MudText>
+            <MudText>Main currency stays fixed at @_settings.MainCurrency.</MudText>
+            @if (_canEdit)
+            {
+                <MudCheckBox T="bool" Value="_enableAlternative" ValueChanged="AlternativeChanged" Disabled="_saving"
+                             Label="@($"Enable {AlternativeCurrency} as an additional currency")" />
+                <MudButton OnClick="SaveAsync" Disabled="_saving" Variant="Variant.Filled" Color="Color.Primary" Class="mt-2">
+                    @(_saving ? "Saving…" : "Save currency settings")
+                </MudButton>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2">You can review these settings but cannot change them.</MudText>
+            }
+        </MudPaper>
+
         <MudPaper Outlined="true" Class="pa-4 mt-4">
             <MudText Typo="Typo.h6" HtmlTag="h2">Supported currencies</MudText>
             <ul aria-label="Supported currencies">
@@ -68,6 +94,14 @@
     private bool _loading;
     private bool _error;
     private bool _unavailable;
+    private bool _enableAlternative;
+    private bool _saving;
+    private bool _saved;
+    private bool _saveUncertain;
+    private string? _saveError;
+    private long _configurationVersion;
+    private bool _canEdit => _settings?.Role is "owner" or "editor";
+    private string AlternativeCurrency => _settings?.MainCurrency == "GBP" ? "USD" : "GBP";
 
     protected override Task OnParametersSetAsync() => LoadAsync();
 
@@ -104,7 +138,12 @@
             response.EnsureSuccessStatusCode();
             var settings = await response.Content.ReadFromJsonAsync<ProfileCurrencySettingsResponse>(cancellationToken: cancellationToken)
                 ?? throw new JsonException("The currency settings are missing.");
-            if (generation == _loadGeneration) _settings = settings;
+            if (generation == _loadGeneration)
+            {
+                _settings = settings;
+                _configurationVersion = settings.ConfigurationVersion;
+                _enableAlternative = settings.AdditionalCurrencies.Contains(AlternativeCurrency, StringComparer.Ordinal);
+            }
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested) { }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
@@ -118,6 +157,92 @@
             requestCancellation.Dispose();
         }
     }
+
+    private void AlternativeChanged(bool enabled)
+    {
+        _enableAlternative = enabled;
+        _saved = false;
+        _saveError = null;
+        _saveUncertain = false;
+    }
+
+    private async Task ReloadLatestAsync()
+    {
+        _saveError = null;
+        _saveUncertain = false;
+        _saved = false;
+        await LoadAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_saving || !_canEdit || _settings is null) return;
+        _saving = true;
+        _saveError = null;
+        _saveUncertain = false;
+        _saved = false;
+        var updateStarted = false;
+        try
+        {
+            using var proofRequest = CredentialedRequest(HttpMethod.Get, "api/auth/antiforgery");
+            using var proofResponse = await Http.SendAsync(proofRequest, _lifetime.Token);
+            if (proofResponse.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            proofResponse.EnsureSuccessStatusCode();
+            var proof = await proofResponse.Content.ReadFromJsonAsync<AntiforgeryProof>(cancellationToken: _lifetime.Token);
+            if (string.IsNullOrWhiteSpace(proof?.RequestToken)) throw new JsonException("Missing request proof.");
+
+            using var request = CredentialedRequest(HttpMethod.Put, $"api/budget-profiles/{ProfileId}/currency-settings");
+            request.Headers.Add("X-CSRF-TOKEN", proof.RequestToken);
+            request.Content = JsonContent.Create(new UpdateProfileCurrencySettingsRequest(
+                _enableAlternative ? [AlternativeCurrency] : [], _configurationVersion));
+            updateStarted = true;
+            using var response = await Http.SendAsync(request, _lifetime.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            if (response.StatusCode == HttpStatusCode.Conflict)
+            {
+                _saveError = "Currency settings changed since you opened them. Reload the latest settings before saving.";
+                return;
+            }
+            if (response.StatusCode == HttpStatusCode.NotFound) { _settings = null; _unavailable = true; return; }
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _saveError = "You no longer have permission to change these settings. Refresh them to see your current access.";
+                return;
+            }
+            if (response.StatusCode == HttpStatusCode.BadRequest)
+            {
+                _saveError = "The currency selection was rejected. Review the settings and try again.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            await LoadAsync();
+            _saved = !_error && !_unavailable;
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            _saveUncertain = updateStarted;
+            _saveError = updateStarted
+                ? "We couldn't confirm whether the settings were saved. Your draft is still here; reload the latest settings before trying again."
+                : "We couldn't prepare the save request. Your draft is still here; try again.";
+        }
+        finally { _saving = false; }
+    }
+
+    private static HttpRequestMessage CredentialedRequest(HttpMethod method, string path)
+    {
+        var request = new HttpRequestMessage(method, path);
+        request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+        return request;
+    }
+
+    private void ReturnToLogin()
+    {
+        Authentication.NotifySignedOut();
+        Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString($"/budget-profiles/{ProfileId}/currencies")}", replace: true);
+    }
+
+    private sealed record AntiforgeryProof(string? RequestToken);
 
     private static string RoleLabel(string role) => role switch
     {

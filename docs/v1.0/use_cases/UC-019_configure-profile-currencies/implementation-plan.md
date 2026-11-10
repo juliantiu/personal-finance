@@ -1,6 +1,6 @@
 # UC-019 — Configure profile currencies — Implementation plan
 
-Status: **Planning draft created 8 November 2026. Implementation phases and product-policy gates require user review and approval before application changes begin.**
+Status: **Phase 1 completed 8 November 2026. Phase 2 completed 10 November 2026. Phase 3 remains pending the UC-009–UC-011 financial/source records.**
 
 ## Sources and planning baseline
 
@@ -69,11 +69,12 @@ Each phase is a vertical, independently reviewable slice. For each behavior, wri
    - **Checkpoint outcome:** A participant can review the authoritative currency configuration and available choices, with access behavior established for the later write phase.
    - **Completion evidence:** Added an access-scoped query and no-store GET endpoint that return saved currencies, current role, and the GBP/USD catalog. Added a read-only currency settings route reachable from profile details, with distinct loading, unavailable, and load-error states. The focused API test first returned **404** while the endpoint was unmapped, then passed after implementation; the profile-navigation component test first failed because the link was absent, then passed after implementation. The full Client suite passed **63 tests**; all **30 profile Integration/LocalDB tests** passed; the focused currency-settings Integration test passed with owner/editor/viewer, inaccessible/missing IDs, and anonymous-session cases; the solution build succeeded with **0 warnings and 0 errors**. No migration or schema change was needed.
 
-2. **Configure additional currencies after profile creation.**
+2. **Completed 10 November 2026 — Configure additional currencies after profile creation.**
    - Keep the main currency selected at profile creation read-only in the settings editor. Add the Domain behavior, Application update command and writer authorization, atomic Infrastructure update, API contract/endpoint, and client form/save flow for optional additional currencies. Support zero or one currently supported alternative and keep the main currency out of `ProfileCurrency` membership rows. Add a version token to the mutable profile configuration and reject stale writes with a conflict.
    - Do not add a broader conversion or historical-revaluation workflow.
    - **Red/green:** Cover no alternative, the valid alternative, duplicate/main-as-alternative, owner/editor success, viewer denial, stale concurrent update returning a conflict without overwriting the winner, antiforgery failure, persistence rollback/failure, safe response feedback, draft preservation, and refreshed settings after save. Use Domain/Application tests, LocalDB/API integration, bUnit, and a focused browser workflow as appropriate.
    - **Checkpoint outcome:** An owner/editor can safely update a valid configuration, and readers see the saved result while unauthorized or invalid writes leave it unchanged.
+   - **Completion evidence:** Added fixed-main domain validation, an owner/editor-only update command and API endpoint, atomic membership updates, an optimistic configuration version, and a browser editor that preserves drafts on failure and reloads saved server state after success. The focused API test showed red with the PUT route unmapped (**405** instead of save); after mapping it, the focused currency Integration class passed **4 tests**. Additional evidence: Domain **22 passed**, Application **46 passed**, Client **65 passed**, all profile Integration/LocalDB tests **33 passed**, and the focused Edge browser workflow **1 passed**. The migration was applied only to isolated LocalDB test databases; the migration-upgrade regression preserved existing accounts, profile access and settings. The full solution build succeeded with **0 errors** and 13 pre-existing Integration test warnings; Release client publish succeeded. Exact commands and notes are in [Phase 2 verification](verification-phase-2.md).
 
 3. **Enforce currency-use lifecycle at financial boundaries.**
    - This phase depends on the financial/source records from UC-009–UC-011 being present. Enforce the confirmed rule that used additional currencies cannot be disabled, while allowing an unused disabled currency to be re-enabled. A pending source record does not prevent disabling, but the UC-011 approval boundary must leave it pending until its source currency is enabled again. Coordinate that approval check without adding transaction entry or statement-import features to UC-019.
@@ -91,7 +92,7 @@ Each phase is a vertical, independently reviewable slice. For each behavior, wri
 
 Use domain tests for currency invariants, Application tests for orchestration and access decisions, LocalDB integration tests for persisted references/constraints/atomicity, bUnit for edit and error states, and a small Playwright workflow for the authorized end-to-end settings interaction. A setup failure is not evidence of the intended red state. Use isolated test-owned databases; verify schema upgrades preserve existing accounts, sessions, profiles, and currency settings. Never apply a migration to a non-test database without a separately agreed implementation step. Do not claim browser, concurrency, or lifecycle coverage beyond the behaviors actually exercised.
 
-Planning status: **This document records a proposed implementation breakdown only. No application code, tests, migrations, builds, or implementation verification were changed or run while drafting it.**
+Implementation status: **Phase 2 is complete and verified. Phase 3 is not authorized by this checkpoint and depends on the financial/source records from UC-009–UC-011.**
 
 ## Explicit exclusions and dependencies
 

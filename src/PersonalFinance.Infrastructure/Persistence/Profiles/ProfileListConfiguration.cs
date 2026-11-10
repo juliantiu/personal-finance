@@ -24,6 +24,7 @@ internal static class ProfileListConfiguration
             profile.HasKey(value => value.Id);
             profile.Property(value => value.Name).HasMaxLength(100).IsRequired();
             profile.Property(value => value.MainCurrencyCode).HasMaxLength(3).IsRequired();
+            profile.Property(value => value.CurrencySettingsVersion).IsConcurrencyToken().HasDefaultValue(0L);
             profile.HasOne<AccountIdentityUser>().WithMany().HasForeignKey(value => value.OwnerAccountId)
                 .OnDelete(DeleteBehavior.NoAction);
             profile.HasOne<CurrencyRecord>().WithMany().HasForeignKey(value => value.MainCurrencyCode)

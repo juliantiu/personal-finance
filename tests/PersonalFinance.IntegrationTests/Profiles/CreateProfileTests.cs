@@ -217,7 +217,10 @@ public sealed class CreateProfileTests
             var owner = (await db.Users.SingleAsync(TestContext.Current.CancellationToken)).Id;
             var participant = Guid.NewGuid();
             db.Users.Add(new AccountIdentityUser { Id = participant, UserName = "shared@example.test", Email = "shared@example.test", EmailConfirmed = true });
-            db.BudgetProfiles.Add(new BudgetProfileRecord { Id = id, OwnerAccountId = owner, Name = "Existing", MainCurrencyCode = "USD" });
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO [BudgetProfiles] ([Id], [OwnerAccountId], [Name], [MainCurrencyCode]) VALUES ({id}, {owner}, {"Existing"}, {"USD"})",
+                TestContext.Current.CancellationToken);
             db.ProfileAccess.Add(new ProfileAccessRecord { ProfileId = id, AccountId = participant, Role = "view_only" });
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
             return true;
@@ -228,6 +231,7 @@ public sealed class CreateProfileTests
         await host.WithDatabaseAsync(async db =>
         {
             Assert.Equal("view_only", (await db.ProfileAccess.SingleAsync(TestContext.Current.CancellationToken)).Role);
+            Assert.Equal(0, (await db.BudgetProfiles.SingleAsync(value => value.Id == id, TestContext.Current.CancellationToken)).CurrencySettingsVersion);
             Assert.Equal(2, await db.Users.CountAsync(TestContext.Current.CancellationToken));
             Assert.False(db.Database.HasPendingModelChanges());
             return true;

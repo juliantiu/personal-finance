@@ -7,4 +7,7 @@ public sealed record ProfileCurrencySettingsResponse(
     string MainCurrency,
     IReadOnlyList<string> AdditionalCurrencies,
     string Role,
+    long ConfigurationVersion,
     IReadOnlyList<SupportedCurrencyResponse> SupportedCurrencies);
+
+public sealed record UpdateProfileCurrencySettingsRequest(string[]? AdditionalCurrencies, long ConfigurationVersion);

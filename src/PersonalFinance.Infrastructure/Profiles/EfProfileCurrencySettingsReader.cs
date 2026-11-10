@@ -20,6 +20,7 @@ public sealed class EfProfileCurrencySettingsReader(AccountIdentityDbContext dat
                 profile.OwnerAccountId == accountId ? "owner" : database.ProfileAccess
                     .Where(access => access.ProfileId == profile.Id && access.AccountId == accountId)
                     .Select(access => access.Role).First(),
+                profile.CurrencySettingsVersion,
                 database.Currencies.OrderBy(currency => currency.Code)
                     .Select(currency => new SupportedProfileCurrency(currency.Code, currency.Name, currency.Symbol)).ToList()))
             .SingleOrDefaultAsync(cancellationToken);
