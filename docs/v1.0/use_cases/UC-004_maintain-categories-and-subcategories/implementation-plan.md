@@ -1,6 +1,6 @@
 # UC-004 — Maintain categories and subcategories — Implementation plan
 
-Status: **Planning draft created 10 November 2026. No implementation phase is approved or complete. Open decisions below must be resolved before the affected phase is approved.**
+Status: **Phase 1 approved and completed 10 November 2026. Phases 2–7 are not approved or complete. Open decisions below remain unresolved for their affected phases.**
 
 ## Sources and current baseline
 
@@ -74,7 +74,7 @@ Within each phase: resolve its decisions, present the concrete phase plan for ap
 
 ### Phase 1 — Review current categories through a dedicated destination
 
-**Status:** Not started; proposed for independent review.
+**Status:** Complete — approved, implemented, and verified 10 November 2026. See [Phase 1 verification](verification-phase-1.md).
 
 - Add an access-scoped category query, contract, GET endpoint, and protected management page reachable from profile details. Return category IDs, names, stable kinds, and the current effective role.
 - Review the three existing system categories and distinguish their meaning from display names. Keep the page read-only until mutation phases land; do not expose inert save/delete controls.
@@ -84,6 +84,8 @@ Within each phase: resolve its decisions, present the concrete phase plan for ap
 **Red/green evidence:** First demonstrate the absent page/navigation or GET behavior. Cover owner/editor/viewer reads; unrelated/missing profile IDs; removed grants; missing/ineligible sessions; no-store behavior; and identity-preserving projection. Component tests cover loading, error versus empty, route changes/late responses, and navigation back. Use a focused browser read/deep-link smoke check.
 
 **Exit criterion:** A participant can open the management page and review authoritative existing categories, while an inaccessible profile yields no category data. No schema migration is required.
+
+**Completion evidence:** Added an authenticated, access-scoped Mediator query, EF projection, browser contract, and no-store categories GET endpoint. The protected read-only category page is reachable from profile details, keys rows by category ID, and displays saved names separately from stable system meanings. Loading, empty, unavailable, retryable failure, session loss, and profile-route changes are covered. The API test first returned **404** instead of **200**; component/navigation tests first failed because the destination/link was absent. Final verification passed **18 Domain, 46 Application, 76 Client, 100 Integration/LocalDB, and 4 Chrome browser tests**. Solution build and Release client publish succeeded; `git diff --check` passed. The build reported 13 pre-existing integration-test warnings. No database schema, domain behavior, dependencies, or mutation functionality was introduced.
 
 ### Phase 2 — Create ordinary categories and edit category metadata
 
@@ -187,8 +189,10 @@ Within each phase: resolve its decisions, present the concrete phase plan for ap
 
 The user requested this implementation plan and its testable phases on 10 November 2026. That authorizes this documentation change only. It does not approve application code, tests, migrations, scaffolding, dependencies, or refactors.
 
+On 10 November 2026, the concrete Phase 1 plan was presented in chat, covering the query/reader, GET contract, protected review destination and navigation, acceptance criteria, red/green verification, and evidence updates. The user explicitly approved it: “Approved. Go ahead and implement this plan”. That approval was used for Phase 1 only. Its verification is recorded in [verification-phase-1.md](verification-phase-1.md); the open decisions for later phases remain unresolved.
+
 Before each phase begins, resolve its open questions, present the concrete implementation scope/acceptance criteria/layer changes/order/red-green approach, and ask for explicit approval as required by `AGENTS.md` and the `uc-phase-implementation` skill. Proceed within the approved scope without repeatedly asking for the same approval. Pause affected work if new ambiguity or a scope change appears.
 
 Complete and verify one phase, record its evidence and status, and pause for the user's questions/readiness before moving on. Readiness to continue does not replace approval of a concrete plan when that plan has not yet been presented and approved.
 
-Planning verification: **Only this documentation draft was created. No application code, tests, migrations, dependencies, builds, or test runs were changed or executed for this planning task.**
+Original planning-only verification, before Phase 1 approval: **Only the documentation draft was created during that planning task. No application code, tests, migrations, dependencies, builds, or test runs were changed or executed for the original planning task.**
