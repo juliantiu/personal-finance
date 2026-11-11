@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using AngleSharp.Dom;
 using Bunit;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
@@ -203,6 +205,91 @@ public sealed class ProfileCategoriesPageTests
     }
 
     [Fact]
+    public async Task Viewer_reviews_subcategory_metadata_without_receiving_mutation_controls()
+    {
+        var id = Guid.NewGuid();
+        await using var context = CreateContext(new StubHandler((profileId, _) => Task.FromResult(CategoriesWithSubcategory(profileId, "view_only"))), id);
+        var page = context.Render<App>();
+
+        page.WaitForAssertion(() => Assert.Contains("Groceries", page.Markup));
+
+        Assert.Contains("Comment: Weekly shop", page.Markup);
+        Assert.Empty(page.FindAll("input, textarea"));
+        Assert.DoesNotContain(page.FindAll("button"), button => button.TextContent.Contains("subcategory", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Writer_can_create_a_subcategory_and_reload_it_from_the_server()
+    {
+        var id = Guid.NewGuid();
+        var handler = new SubcategoryCreateHandler(id);
+        await using var context = CreateContext(handler, id);
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("No subcategories under this category.", page.Markup));
+        var incomeItem = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("System category: Income"));
+
+        incomeItem.QuerySelectorAll("input").Last().Change("Groceries");
+        incomeItem = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("System category: Income"));
+        incomeItem.QuerySelectorAll("button").Single(button => button.TextContent.Contains("Add subcategory")).Click();
+
+        page.WaitForAssertion(() => Assert.Contains("Groceries", page.Markup));
+        Assert.Single(handler.Writes);
+        Assert.Contains("/categories/11111111-1111-1111-1111-111111111111/subcategories", handler.Paths.Single());
+        Assert.Contains("X-CSRF-TOKEN", handler.Headers);
+    }
+
+    [Fact]
+    public async Task Unknown_subcategory_create_outcome_requires_review_before_retry()
+    {
+        var id = Guid.NewGuid();
+        var handler = new SubcategoryCreateHandler(id, loseFirstResponse: true);
+        await using var context = CreateContext(handler, id);
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("No subcategories under this category.", page.Markup));
+        var incomeItem = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("System category: Income"));
+
+        incomeItem.QuerySelectorAll("input").Last().Change("Possibly saved");
+        incomeItem = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("System category: Income"));
+        incomeItem.QuerySelectorAll("button").Single(button => button.TextContent.Contains("Add subcategory")).Click();
+        page.WaitForAssertion(() => Assert.Contains("Review the saved subcategories", page.Markup));
+        Assert.Single(handler.Writes);
+        incomeItem = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("System category: Income"));
+        Assert.True(incomeItem.QuerySelectorAll("button").Single(button => button.TextContent.Contains("Add subcategory")).HasAttribute("disabled"));
+
+        incomeItem.QuerySelectorAll("button").Single(button => button.TextContent.Contains("Review subcategories")).Click();
+        page.WaitForAssertion(() => Assert.DoesNotContain("Review the saved subcategories", page.Markup));
+        Assert.Single(handler.Writes);
+        incomeItem = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("System category: Income"));
+        Assert.False(incomeItem.QuerySelectorAll("button").Single(button => button.TextContent.Contains("Add subcategory")).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public async Task Subcategory_conflict_keeps_draft_until_latest_version_is_loaded_and_resubmitted()
+    {
+        var id = Guid.NewGuid();
+        var handler = new SubcategoryEditHandler(id);
+        await using var context = CreateContext(handler, id);
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("Groceries", page.Markup));
+        var incomeItem = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("System category: Income"));
+
+        incomeItem.QuerySelectorAll("input").Single(input => input.GetAttribute("value") == "Groceries").Change("Draft groceries");
+        incomeItem = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("System category: Income"));
+        incomeItem.QuerySelectorAll("button").Single(button => button.TextContent.Contains("Save subcategory")).Click();
+        page.WaitForAssertion(() => Assert.Contains("This subcategory changed since you opened it", page.Markup));
+        incomeItem = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("System category: Income"));
+        incomeItem.QuerySelectorAll("button").Single(button => button.TextContent.Contains("Load latest subcategory")).Click();
+        page.WaitForAssertion(() => Assert.Contains("Draft groceries", page.Markup));
+        incomeItem = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("System category: Income"));
+        Assert.Contains(incomeItem.QuerySelectorAll("input"), input => input.GetAttribute("value") == "Draft groceries");
+
+        incomeItem.QuerySelectorAll("button").Single(button => button.TextContent.Contains("Save subcategory")).Click();
+        page.WaitForAssertion(() => Assert.Contains("Draft groceries", page.Markup));
+        Assert.Contains(handler.Writes, body => body.Contains("BAUG", StringComparison.Ordinal));
+        Assert.Contains(handler.Writes, body => body.Contains("Draft groceries", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Unknown_create_outcome_requires_review_before_the_user_can_retry()
     {
         var id = Guid.NewGuid();
@@ -231,9 +318,9 @@ public sealed class ProfileCategoriesPageTests
             profileId = id, role,
             categories = empty ? [] : new[]
             {
-                new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = incomeName, kind = "income", comment = (string?)null, version = "AQID" },
-                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Rainy day", kind = "savings", comment = (string?)null, version = "AQIE" },
-                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Loans", kind = "debt", comment = (string?)null, version = "AQIF" }
+                new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = incomeName, kind = "income", comment = (string?)null, version = "AQID", subcategories = Array.Empty<object>() },
+                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Rainy day", kind = "savings", comment = (string?)null, version = "AQIE", subcategories = Array.Empty<object>() },
+                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Loans", kind = "debt", comment = (string?)null, version = "AQIF", subcategories = Array.Empty<object>() }
             }
         })
     };
@@ -314,10 +401,87 @@ public sealed class ProfileCategoriesPageTests
             role = "owner",
             categories = new[]
             {
-                new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = categoryName, kind = "income", comment = (string?)null, version = currentVersion },
-                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Savings", kind = "savings", comment = (string?)null, version = "AQIE" },
-                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Debt", kind = "debt", comment = (string?)null, version = "AQIF" }
+                new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = categoryName, kind = "income", comment = (string?)null, version = currentVersion, subcategories = Array.Empty<object>() },
+                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Savings", kind = "savings", comment = (string?)null, version = "AQIE", subcategories = Array.Empty<object>() },
+                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Debt", kind = "debt", comment = (string?)null, version = "AQIF", subcategories = Array.Empty<object>() }
             }
         })
     };
+
+    private static HttpResponseMessage CategoriesWithSubcategory(Guid id, string role = "owner", string childName = "Groceries",
+        string childVersion = "AQID", string? childComment = "Weekly shop") => new(HttpStatusCode.OK)
+    {
+        Content = JsonContent.Create(new
+        {
+            profileId = id,
+            role,
+            categories = new[]
+            {
+                new
+                {
+                    id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = "Income", kind = "income", comment = (string?)null, version = "AQIE",
+                    subcategories = (IReadOnlyList<object>)new object[] { new { id = Guid.Parse("44444444-4444-4444-4444-444444444444"), categoryId = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = childName, comment = childComment, version = childVersion } }
+                },
+                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Savings", kind = "savings", comment = (string?)null, version = "AQIF", subcategories = (IReadOnlyList<object>)Array.Empty<object>() },
+                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Debt", kind = "debt", comment = (string?)null, version = "AQIG", subcategories = (IReadOnlyList<object>)Array.Empty<object>() }
+            }
+        })
+    };
+
+    private sealed class SubcategoryCreateHandler(Guid profileId, bool loseFirstResponse = false) : HttpMessageHandler
+    {
+        private string? _createdName;
+        public List<string> Writes { get; } = [];
+        public List<string> Paths { get; } = [];
+        public List<string> Headers { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/auth/session")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { authenticated = true, email = "person@example.test" }) };
+            if (request.RequestUri.AbsolutePath == "/api/auth/antiforgery")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { requestToken = "synthetic-csrf" }) };
+            if (request.Method == HttpMethod.Get)
+                return _createdName is null ? Categories(profileId) : CategoriesWithSubcategory(profileId, childName: _createdName, childComment: null);
+            Paths.Add(request.RequestUri.AbsolutePath);
+            Headers.AddRange(request.Headers.Select(header => header.Key));
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            Writes.Add(body);
+            using var payload = JsonDocument.Parse(body);
+            _createdName = payload.RootElement.GetProperty("name").GetString();
+            if (loseFirstResponse && Writes.Count == 1) throw new HttpRequestException("Synthetic lost create response.");
+            return new HttpResponseMessage(HttpStatusCode.Created) { Content = JsonContent.Create(new { id = Guid.NewGuid() }) };
+        }
+    }
+
+    private sealed class SubcategoryEditHandler(Guid profileId) : HttpMessageHandler
+    {
+        private int _reads;
+        private int _writes;
+        private string? _savedName;
+        public List<string> Writes { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/auth/session")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { authenticated = true, email = "person@example.test" }) };
+            if (request.RequestUri.AbsolutePath == "/api/auth/antiforgery")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { requestToken = "synthetic-csrf" }) };
+            if (request.Method == HttpMethod.Get)
+            {
+                _reads++;
+                var version = _reads == 1 ? "AQID" : _reads == 2 ? "BAUG" : "Bw==";
+                return CategoriesWithSubcategory(profileId, childName: _savedName ?? (_reads == 2 ? "Latest groceries" : "Groceries"), childVersion: version);
+            }
+            var body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            Writes.Add(body);
+            _writes++;
+            if (_writes > 1)
+            {
+                using var payload = JsonDocument.Parse(body);
+                _savedName = payload.RootElement.GetProperty("name").GetString();
+            }
+            return new HttpResponseMessage(_writes == 1 ? HttpStatusCode.Conflict : HttpStatusCode.OK);
+        }
+    }
 }

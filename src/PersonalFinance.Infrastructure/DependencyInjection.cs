@@ -60,6 +60,7 @@ public static class DependencyInjection
         services.AddScoped<IProfileCategoriesReader, EfProfileCategoriesReader>();
         services.AddScoped<IProfileCreationStore, EfProfileCreationStore>();
         services.AddScoped<IProfileCategoryWriter, EfProfileCategoryWriter>();
+        services.AddScoped<IProfileSubcategoryWriter, EfProfileSubcategoryWriter>();
         services.AddScoped<IAccountSessionEligibility, IdentityAccountSessionEligibility>();
         services.AddScoped<IBffSessionStore, ProtectedBffSessionStore>();
         services.AddSingleton<ITicketStore, ProtectedAuthenticationTicketStore>();

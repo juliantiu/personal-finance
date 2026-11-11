@@ -74,13 +74,30 @@ public sealed class ProfileCategoriesBrowserTests
         await Expect(incomeName).ToHaveValueAsync("Wages revised");
         await Expect(ordinaryItem.GetByLabel("Category name", new() { Exact = true })).ToHaveValueAsync("Wages revised");
 
+        var savingsItem = categories.GetByRole(AriaRole.Listitem).Filter(new() { HasText = "System category: Savings" });
+        await savingsItem.GetByLabel("New subcategory name", new() { Exact = true }).FillAsync("Emergency fund");
+        await savingsItem.GetByLabel("New subcategory comment (optional)", new() { Exact = true }).FillAsync("Unexpected costs");
+        var createSubcategoryResponse = page.WaitForResponseAsync(response =>
+            response.Url.Contains("/subcategories", StringComparison.Ordinal) && response.Request.Method == "POST");
+        await savingsItem.GetByRole(AriaRole.Button, new() { Name = "Add subcategory", Exact = true }).ClickAsync();
+        Assert.Equal(201, (int)(await createSubcategoryResponse).Status);
+        var savingsChildren = page.GetByRole(AriaRole.List, new() { Name = "Subcategories for Rainy day", Exact = true });
+        var emergencyFund = savingsChildren.GetByRole(AriaRole.Listitem).First;
+        await Expect(emergencyFund.GetByLabel("Subcategory name", new() { Exact = true })).ToHaveValueAsync("Emergency fund");
+        await Expect(emergencyFund).ToContainTextAsync("Unexpected costs");
+        await emergencyFund.GetByLabel("Subcategory name", new() { Exact = true }).FillAsync("Travel fund");
+        await emergencyFund.GetByRole(AriaRole.Button, new() { Name = "Save subcategory", Exact = true }).ClickAsync();
+        await Expect(emergencyFund.GetByLabel("Subcategory name", new() { Exact = true })).ToHaveValueAsync("Travel fund");
+
         await page.GetByRole(AriaRole.Link, new() { Name = "Back to profile", Exact = true }).ClickAsync();
         await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Category review home", Exact = true })).ToBeVisibleAsync();
         await page.GetByRole(AriaRole.Link, new() { Name = "Review categories", Exact = true }).ClickAsync();
         await Expect(page).ToHaveURLAsync(ownedUrl);
         await page.ReloadAsync();
-        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(4);
+        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(5);
         await Expect(incomeItem.GetByLabel("Category name", new() { Exact = true })).ToHaveValueAsync("Wages revised");
+        await Expect(savingsChildren.GetByRole(AriaRole.Listitem).First.GetByLabel("Subcategory name", new() { Exact = true }))
+            .ToHaveValueAsync("Travel fund");
 
         await page.RouteAsync("**/api/budget-profiles/*/categories", route => route.AbortAsync());
         await page.ReloadAsync();
@@ -88,7 +105,7 @@ public sealed class ProfileCategoriesBrowserTests
         await Expect(categories).ToHaveCountAsync(0);
         await page.UnrouteAsync("**/api/budget-profiles/*/categories");
         await page.GetByRole(AriaRole.Button, new() { Name = "Try again", Exact = true }).ClickAsync();
-        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(4);
+        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(5);
 
         await page.SetViewportSizeAsync(390, 844);
         await page.GotoAsync(sharedUrl);

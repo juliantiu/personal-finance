@@ -1,6 +1,6 @@
 # UC-004 — Maintain categories and subcategories — Implementation plan
 
-Status: **Phases 1–2 approved, completed, and verified 10 November 2026. Phases 3–7 are not approved or complete. Decisions below remain unresolved for their affected phases.**
+Status: **Phases 1–3 approved, completed, and verified by 11 November 2026. Phases 4–7 are not approved or complete. Decisions below remain unresolved for their affected phases.**
 
 ## Sources and current baseline
 
@@ -39,10 +39,10 @@ Recommendations here are proposals for discussion, not accepted requirements or 
 | --- | --- | --- |
 | Names | **Resolved by the user for Phases 2–3:** require a nonblank name after trimming, maximum 100 characters after trimming, and allow duplicate display names identified by record ID. | Applied in Phases 2–3 |
 | Comments | **Resolved by the user for Phases 2–3:** optional plain text, maximum 2,000 characters, normalize empty/whitespace-only input to absent, and preserve meaningful interior line breaks. | Applied in Phases 2–3 |
-| Concurrent changes | **Resolved for Phase 2:** optimistic concurrency per edited category record; a stale edit returns a conflict and preserves the draft until the user reloads the current version. Parent-retirement/child-write interaction and the concurrency boundary for later deletion phases remain open. | Phase 2 complete; revisit Phases 3–5 |
+| Concurrent changes | **Resolved for Phases 2–3:** optimistic concurrency per edited category or subcategory record; a stale edit returns a conflict and preserves the draft until the user reloads the current version. Parent-retirement/child-write interaction and the concurrency boundary for later deletion phases remain open. | Phases 2–3 complete; revisit Phases 4–5 |
 | Editing retained items | May writers rename or edit comments on explicitly deleted items and children blocked by a deleted parent? Historical financial correction access is confirmed; post-deletion metadata editing is not. Suggested: permit metadata corrections without clearing deletion facts, while rejecting new children under a deleted parent. | Phases 4–5 |
 | Repeated deletion | What should happen when a retained item is deleted again, or an individually active child is explicitly deleted after its parent? Suggested: repeated deletion preserves the original timestamp; a first explicit child deletion records its independent fact even when the parent already blocks tracking. Resolve how this interacts with a stale version. | Phases 4–5 |
-| Savings setup boundary | The logical schema requires one SavingsPlan row per Savings subcategory, even when its goal and reset note are unset. Suggested: create that empty settings row atomically with a Savings subcategory, leaving goal/reset-note editing and balances to UC-014. Confirm this minimal prerequisite rather than expanding UC-004 into savings management. | Phase 3 |
+| Savings setup boundary | **Resolved for Phase 3:** create an empty SavingsPlan atomically with each Savings subcategory, with goal and reset note unset. Goal/reset-note editing and balances stay in UC-014. The migration uses EF's SQL Server default decimal mapping for the nullable goal column; UC-014 must resolve goal precision before accepting values. | Phase 3 complete |
 
 Reparenting and restoration remain excluded, so they do not need new product rules for this plan. Goal precision, financial timestamps, correction deletion, and report policies must be resolved in their owning use cases before the historical verification phase depends on them.
 
@@ -104,7 +104,7 @@ Within each phase: resolve its decisions, present the concrete phase plan for ap
 
 ### Phase 3 — Create and edit subcategories under their category
 
-**Status:** Not started; gated by subcategory input/concurrency decisions and the Savings setup boundary.
+**Status:** Complete — approved, implemented, and verified 11 November 2026. See [Phase 3 verification](verification-phase-3.md).
 
 - Introduce subcategory identity, fixed parent relationship, name/comment behavior, persistence/migration, queries/commands, endpoints, and nested management UI. Extend the review destination to show children and their comments for all participants.
 - Support children under ordinary, Income, Savings, and Debt categories. Resolve parent/profile membership on the server, including when IDs from two accessible profiles are mixed.
@@ -114,6 +114,8 @@ Within each phase: resolve its decisions, present the concrete phase plan for ap
 **Red/green evidence:** Cover creation under each category kind; agreed blank/length/duplicate/comment cases; stable identity/parent after edits; viewer/revoked access denial; foreign-profile parent/child IDs; nonexistent parent; and stale updates. Use real LocalDB rollback injection for child/settings creation if applicable, migration preservation checks, component nested-list/form tests, and a browser add/edit/reload workflow.
 
 **Exit criterion:** Owners/editors can create and edit subcategories and viewers can read them. Parent/profile isolation and required Savings setup hold atomically. No financial activity is created.
+
+**Completion evidence:** Added stable subcategory identity and metadata rules, profile-scoped reads and writes, per-subcategory row-version concurrency, and nested review/create/edit controls. Children can be created under ordinary and all three system category kinds; duplicate names remain distinct by ID. Savings child creation and its empty SavingsPlan commit together. Integration coverage verifies access, validation, profile isolation, antiforgery, stale updates, migration preservation, and rollback when SavingsPlan insertion fails. All tests and the browser add/edit/reload workflow passed; see [Phase 3 verification](verification-phase-3.md).
 
 ### Phase 4 — Stop tracking an individual subcategory
 

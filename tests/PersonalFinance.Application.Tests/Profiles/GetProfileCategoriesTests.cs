@@ -10,7 +10,7 @@ public sealed class GetProfileCategoriesTests
     {
         var accountId = Guid.NewGuid();
         var profileId = Guid.NewGuid();
-        var reader = new StubReader { Result = new(profileId, "editor", [new(Guid.NewGuid(), "Earnings", "income", null, [1, 2, 3])]) };
+        var reader = new StubReader { Result = new(profileId, "editor", [new(Guid.NewGuid(), "Earnings", "income", null, [1, 2, 3], [])]) };
         var handler = new GetProfileCategoriesHandler(new StubAccount(accountId), reader);
 
         var result = await handler.Handle(new GetProfileCategoriesQuery(profileId), TestContext.Current.CancellationToken);

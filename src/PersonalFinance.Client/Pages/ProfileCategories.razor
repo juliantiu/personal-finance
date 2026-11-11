@@ -108,6 +108,70 @@
                             {
                                 <MudText Typo="Typo.body2">System category: @KindLabel(category.Kind)</MudText>
                             }
+                            <MudText Typo="Typo.subtitle2" Class="mt-3">Subcategories</MudText>
+                            @if (category.Subcategories.Count == 0)
+                            {
+                                <MudText Typo="Typo.body2" role="status">No subcategories under this category.</MudText>
+                            }
+                            else
+                            {
+                                <ul aria-label="Subcategories for @category.Name">
+                                    @foreach (var subcategory in category.Subcategories)
+                                    {
+                                        <li @key="subcategory.Id" class="mb-2">
+                                            @if (IsWriter)
+                                            {
+                                                <MudTextField T="string" Label="Subcategory name" Value="GetSubcategoryDraftName(subcategory)"
+                                                              ValueChanged="value => SetSubcategoryDraftName(subcategory.Id, value)" MaxLength="100"
+                                                              Disabled="_savingSubcategoryId == subcategory.Id" />
+                                                <MudTextField T="string" Label="Comment (optional)" Value="GetSubcategoryDraftComment(subcategory)"
+                                                              ValueChanged="value => SetSubcategoryDraftComment(subcategory.Id, value)" Lines="3" MaxLength="2000"
+                                                              Disabled="_savingSubcategoryId == subcategory.Id" />
+                                                <MudButton OnClick="() => SaveSubcategoryAsync(category, subcategory)" Disabled="_savingSubcategoryId == subcategory.Id"
+                                                           Variant="Variant.Outlined" Color="Color.Primary">
+                                                    @(_savingSubcategoryId == subcategory.Id ? "Saving…" : "Save subcategory")
+                                                </MudButton>
+                                                @if (_conflictSubcategoryId == subcategory.Id)
+                                                {
+                                                    <MudAlert Severity="Severity.Warning" Class="mt-2" role="alert">
+                                                        This subcategory changed since you opened it. Your draft is still available. Load the latest version, review your draft, then save again.
+                                                    </MudAlert>
+                                                    <MudButton OnClick="() => ReloadAfterSubcategoryConflictAsync(subcategory.Id)" Variant="Variant.Outlined">Load latest subcategory</MudButton>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <MudText>@subcategory.Name</MudText>
+                                                @if (!string.IsNullOrWhiteSpace(subcategory.Comment))
+                                                {
+                                                    <MudText Typo="Typo.body2" Style="white-space: pre-wrap">Comment: @subcategory.Comment</MudText>
+                                                }
+                                            }
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                            @if (IsWriter)
+                            {
+                                <MudTextField T="string" Label="New subcategory name" Value="GetNewSubcategoryName(category.Id)"
+                                              ValueChanged="value => SetNewSubcategoryName(category.Id, value)" MaxLength="100"
+                                              Disabled="_creatingSubcategoryCategoryId == category.Id || _uncertainSubcategoryCategoryId == category.Id" />
+                                <MudTextField T="string" Label="New subcategory comment (optional)" Value="GetNewSubcategoryComment(category.Id)"
+                                              ValueChanged="value => SetNewSubcategoryComment(category.Id, value)" Lines="3" MaxLength="2000"
+                                              Disabled="_creatingSubcategoryCategoryId == category.Id || _uncertainSubcategoryCategoryId == category.Id" />
+                                <MudButton OnClick="() => CreateSubcategoryAsync(category)"
+                                           Disabled="_creatingSubcategoryCategoryId == category.Id || _uncertainSubcategoryCategoryId == category.Id"
+                                           Variant="Variant.Filled" Color="Color.Primary">
+                                    @(_creatingSubcategoryCategoryId == category.Id ? "Creating…" : "Add subcategory")
+                                </MudButton>
+                                @if (_uncertainSubcategoryCategoryId == category.Id)
+                                {
+                                    <MudAlert Severity="Severity.Warning" Class="mt-2" role="alert">
+                                        We couldn't confirm whether this subcategory was created. Review the saved subcategories before choosing to retry.
+                                    </MudAlert>
+                                    <MudButton OnClick="() => ReviewAfterUncertainSubcategoryAsync(category.Id)" Variant="Variant.Outlined">Review subcategories</MudButton>
+                                }
+                            }
                         </li>
                     }
                 </ul>
@@ -126,6 +190,10 @@
     private ProfileCategoriesResponse? _categories;
     private readonly Dictionary<Guid, string> _draftNames = [];
     private readonly Dictionary<Guid, string?> _draftComments = [];
+    private readonly Dictionary<Guid, string> _subcategoryDraftNames = [];
+    private readonly Dictionary<Guid, string?> _subcategoryDraftComments = [];
+    private readonly Dictionary<Guid, string> _newSubcategoryNames = [];
+    private readonly Dictionary<Guid, string?> _newSubcategoryComments = [];
     private bool _loading;
     private bool _error;
     private bool _unavailable;
@@ -133,6 +201,10 @@
     private bool _createUncertain;
     private Guid? _savingCategoryId;
     private Guid? _conflictCategoryId;
+    private Guid? _creatingSubcategoryCategoryId;
+    private Guid? _uncertainSubcategoryCategoryId;
+    private Guid? _savingSubcategoryId;
+    private Guid? _conflictSubcategoryId;
     private string _newCategoryName = string.Empty;
     private string? _newCategoryComment;
     private string? _formError;
@@ -160,7 +232,13 @@
         {
             _draftNames.Clear();
             _draftComments.Clear();
+            _subcategoryDraftNames.Clear();
+            _subcategoryDraftComments.Clear();
+            _newSubcategoryNames.Clear();
+            _newSubcategoryComments.Clear();
             _conflictCategoryId = null;
+            _conflictSubcategoryId = null;
+            _uncertainSubcategoryCategoryId = null;
         }
         var cancellationToken = requestCancellation.Token;
         try
@@ -190,6 +268,11 @@
                 {
                     _draftNames.TryAdd(category.Id, category.Name);
                     _draftComments.TryAdd(category.Id, category.Comment);
+                    foreach (var subcategory in category.Subcategories)
+                    {
+                        _subcategoryDraftNames.TryAdd(subcategory.Id, subcategory.Name);
+                        _subcategoryDraftComments.TryAdd(subcategory.Id, subcategory.Comment);
+                    }
                 }
             }
         }
@@ -287,6 +370,111 @@
         finally { _savingCategoryId = null; }
     }
 
+    private async Task CreateSubcategoryAsync(ProfileCategoryResponse category)
+    {
+        if (_creatingSubcategoryCategoryId is not null || _uncertainSubcategoryCategoryId is not null || !IsWriter) return;
+        _formError = null;
+        var name = GetNewSubcategoryName(category.Id);
+        var comment = GetNewSubcategoryComment(category.Id);
+        if (string.IsNullOrWhiteSpace(name)) { _formError = "Enter a subcategory name."; return; }
+        if (name.Trim().Length > 100) { _formError = "Use at most 100 characters after trimming."; return; }
+        if (comment?.Length > 2000) { _formError = "Use at most 2,000 characters for a comment."; return; }
+
+        _creatingSubcategoryCategoryId = category.Id;
+        var requestStarted = false;
+        try
+        {
+            var token = await GetAntiforgeryTokenAsync();
+            using var request = CredentialedRequest(HttpMethod.Post,
+                $"api/budget-profiles/{ProfileId}/categories/{category.Id}/subcategories");
+            request.Headers.Add("X-CSRF-TOKEN", token);
+            request.Content = JsonContent.Create(new CreateProfileSubcategoryRequest(name, comment));
+            requestStarted = true;
+            using var response = await Http.SendAsync(request, _lifetime.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            if (response.StatusCode == HttpStatusCode.NotFound) { SetUnavailable(); return; }
+            if (response.StatusCode == HttpStatusCode.BadRequest)
+            {
+                _formError = "The subcategory wasn't created. Check the name and comment, then try again.";
+                return;
+            }
+            if (response.StatusCode != HttpStatusCode.Created)
+            {
+                _uncertainSubcategoryCategoryId = category.Id;
+                return;
+            }
+            _newSubcategoryNames[category.Id] = string.Empty;
+            _newSubcategoryComments[category.Id] = null;
+            await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            if (requestStarted) _uncertainSubcategoryCategoryId = category.Id;
+            else _formError = "We couldn't prepare the request. The subcategory wasn't submitted. Try again.";
+        }
+        finally { _creatingSubcategoryCategoryId = null; }
+    }
+
+    // Comment ID: METHOD-076. Saves child metadata against the version shown and keeps the local draft after a conflict.
+    private async Task SaveSubcategoryAsync(ProfileCategoryResponse category, ProfileSubcategoryResponse subcategory)
+    {
+        if (_savingSubcategoryId is not null || !IsWriter) return;
+        _formError = null;
+        var name = GetSubcategoryDraftName(subcategory);
+        var comment = GetSubcategoryDraftComment(subcategory);
+        if (string.IsNullOrWhiteSpace(name)) { _formError = "Enter a subcategory name."; return; }
+        if (name.Trim().Length > 100) { _formError = "Use at most 100 characters after trimming."; return; }
+        if (comment?.Length > 2000) { _formError = "Use at most 2,000 characters for a comment."; return; }
+
+        _savingSubcategoryId = subcategory.Id;
+        try
+        {
+            var token = await GetAntiforgeryTokenAsync();
+            using var request = CredentialedRequest(HttpMethod.Put,
+                $"api/budget-profiles/{ProfileId}/categories/{category.Id}/subcategories/{subcategory.Id}");
+            request.Headers.Add("X-CSRF-TOKEN", token);
+            request.Content = JsonContent.Create(new UpdateProfileSubcategoryRequest(name, comment, subcategory.Version));
+            using var response = await Http.SendAsync(request, _lifetime.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            if (response.StatusCode == HttpStatusCode.NotFound) { SetUnavailable(); return; }
+            if (response.StatusCode == HttpStatusCode.Conflict)
+            {
+                _conflictSubcategoryId = subcategory.Id;
+                return;
+            }
+            if (response.StatusCode == HttpStatusCode.BadRequest)
+            {
+                _formError = "The subcategory wasn't saved. Check the name and comment, then try again.";
+                return;
+            }
+            response.EnsureSuccessStatusCode();
+            _conflictSubcategoryId = null;
+            await LoadAsync();
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            _formError = "We couldn't confirm that the subcategory was saved. Review the latest subcategory before trying again.";
+        }
+        finally { _savingSubcategoryId = null; }
+    }
+
+    // Comment ID: METHOD-077. Reloads the authoritative child while retaining the writer's unresolved draft.
+    private async Task ReloadAfterSubcategoryConflictAsync(Guid subcategoryId)
+    {
+        await LoadCategoriesAsync(preserveDrafts: true);
+        if (_categories?.Categories.SelectMany(category => category.Subcategories).Any(value => value.Id == subcategoryId) != true)
+            SetUnavailable();
+    }
+
+    // Comment ID: METHOD-078. Requires a fresh category read before an uncertain child creation can be retried.
+    private async Task ReviewAfterUncertainSubcategoryAsync(Guid categoryId)
+    {
+        await LoadAsync();
+        if (_categories is not null) _uncertainSubcategoryCategoryId = null;
+    }
+
     private async Task ReloadAfterConflictAsync(Guid categoryId)
     {
         await LoadCategoriesAsync(preserveDrafts: true);
@@ -313,9 +501,27 @@
 
     private string? GetDraftComment(ProfileCategoryResponse category) => _draftComments.GetValueOrDefault(category.Id, category.Comment);
 
+    private string GetSubcategoryDraftName(ProfileSubcategoryResponse subcategory) =>
+        _subcategoryDraftNames.GetValueOrDefault(subcategory.Id, subcategory.Name);
+
+    private string? GetSubcategoryDraftComment(ProfileSubcategoryResponse subcategory) =>
+        _subcategoryDraftComments.GetValueOrDefault(subcategory.Id, subcategory.Comment);
+
+    private string GetNewSubcategoryName(Guid categoryId) => _newSubcategoryNames.GetValueOrDefault(categoryId, string.Empty);
+
+    private string? GetNewSubcategoryComment(Guid categoryId) => _newSubcategoryComments.GetValueOrDefault(categoryId);
+
     private void SetDraftName(Guid categoryId, string value) => _draftNames[categoryId] = value;
 
     private void SetDraftComment(Guid categoryId, string? value) => _draftComments[categoryId] = value;
+
+    private void SetSubcategoryDraftName(Guid subcategoryId, string value) => _subcategoryDraftNames[subcategoryId] = value;
+
+    private void SetSubcategoryDraftComment(Guid subcategoryId, string? value) => _subcategoryDraftComments[subcategoryId] = value;
+
+    private void SetNewSubcategoryName(Guid categoryId, string value) => _newSubcategoryNames[categoryId] = value;
+
+    private void SetNewSubcategoryComment(Guid categoryId, string? value) => _newSubcategoryComments[categoryId] = value;
 
     private void NewCategoryNameChanged(string value) => _newCategoryName = value;
 

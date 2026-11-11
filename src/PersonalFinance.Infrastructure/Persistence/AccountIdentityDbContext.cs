@@ -16,6 +16,8 @@ public sealed class AccountIdentityDbContext(DbContextOptions<AccountIdentityDbC
     public DbSet<CurrencyRecord> Currencies => Set<CurrencyRecord>();
     public DbSet<ProfileCurrencyRecord> ProfileCurrencies => Set<ProfileCurrencyRecord>();
     public DbSet<CategoryRecord> Categories => Set<CategoryRecord>();
+    public DbSet<SubcategoryRecord> Subcategories => Set<SubcategoryRecord>();
+    public DbSet<SavingsPlanRecord> SavingsPlans => Set<SavingsPlanRecord>();
     public DbSet<PaymentMethodRecord> PaymentMethods => Set<PaymentMethodRecord>();
     public DbSet<TagRecord> Tags => Set<TagRecord>();
 
@@ -24,6 +26,7 @@ public sealed class AccountIdentityDbContext(DbContextOptions<AccountIdentityDbC
         base.OnModelCreating(builder);
         builder.ConfigureProfileList();
         builder.ConfigureProfileCreation();
+        builder.ConfigureProfileSubcategories();
 
         builder.UseOpenIddict();
 

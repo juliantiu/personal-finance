@@ -582,6 +582,53 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                     b.ToTable("ProfileCurrencies", (string)null);
                 });
 
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.SavingsPlanRecord", b =>
+                {
+                    b.Property<Guid>("SubcategoryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<decimal?>("GoalAmount")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("ResetNote")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("SubcategoryId");
+
+                    b.ToTable("SavingsPlans", (string)null);
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.SubcategoryRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Comment")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<byte[]>("Version")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoryId");
+
+                    b.ToTable("Subcategories", (string)null);
+                });
+
             modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.TagRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -731,6 +778,24 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                     b.HasOne("PersonalFinance.Infrastructure.Persistence.Profiles.BudgetProfileRecord", null)
                         .WithMany()
                         .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.SavingsPlanRecord", b =>
+                {
+                    b.HasOne("PersonalFinance.Infrastructure.Persistence.Profiles.SubcategoryRecord", null)
+                        .WithOne()
+                        .HasForeignKey("PersonalFinance.Infrastructure.Persistence.Profiles.SavingsPlanRecord", "SubcategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("PersonalFinance.Infrastructure.Persistence.Profiles.SubcategoryRecord", b =>
+                {
+                    b.HasOne("PersonalFinance.Infrastructure.Persistence.Profiles.CategoryRecord", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
