@@ -300,8 +300,10 @@ public sealed class ProfileSubcategoryTests
         await host.WithDatabaseAsync(async db =>
         {
             db.BudgetProfiles.Add(new BudgetProfileRecord { Id = profileId, OwnerAccountId = owner, Name = "Existing", MainCurrencyCode = "GBP" });
-            db.Categories.Add(new CategoryRecord { Id = categoryId, ProfileId = profileId, Name = "Savings", Kind = "savings" });
             await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO [Categories] ([Id], [ProfileId], [Name], [Kind], [Comment]) VALUES ({categoryId}, {profileId}, {"Savings"}, {"savings"}, {null});",
+                TestContext.Current.CancellationToken);
             await db.Database.ExecuteSqlInterpolatedAsync(
                 $"INSERT INTO [Subcategories] ([Id], [CategoryId], [Name], [Comment]) VALUES ({existingChildId}, {categoryId}, {"Existing child"}, {"Retained comment"});",
                 TestContext.Current.CancellationToken);

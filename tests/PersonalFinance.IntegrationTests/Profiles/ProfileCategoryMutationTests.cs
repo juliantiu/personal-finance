@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -58,7 +59,12 @@ public sealed class ProfileCategoryMutationTests
             Assert.Equal("Existing profile", (await db.BudgetProfiles.SingleAsync(profile => profile.Id == profileId, TestContext.Current.CancellationToken)).Name);
             var categories = await db.Categories.Where(category => category.ProfileId == profileId).OrderBy(category => category.Kind).ToArrayAsync(TestContext.Current.CancellationToken);
             Assert.Equal(categoryIds.OrderBy(id => id), categories.Select(category => category.Id).OrderBy(id => id));
-            Assert.All(categories, category => { Assert.Null(category.Comment); Assert.Equal(8, category.Version.Length); });
+            Assert.All(categories, category =>
+            {
+                Assert.Null(category.Comment);
+                Assert.Null(category.TrackingStoppedAt);
+                Assert.Equal(8, category.Version.Length);
+            });
             return true;
         });
     }
@@ -197,6 +203,198 @@ public sealed class ProfileCategoryMutationTests
         var persisted = Assert.Single(saved!.Categories, item => item.Id == categoryId);
         Assert.Equal("First edit", persisted.Name);
         Assert.Equal("saved", persisted.Comment);
+    }
+
+    [Fact]
+    public async Task Ordinary_category_deletion_retains_children_blocks_new_tracking_and_protects_system_categories()
+    {
+        await using var host = new AccountTestHost();
+        await host.MigrateAsync();
+        var owner = await AddAccount(host);
+        var editor = await AddAccount(host);
+        var viewer = await AddAccount(host);
+        var profileId = Guid.NewGuid();
+        var ordinaryId = Guid.NewGuid();
+        var incomeId = Guid.NewGuid();
+        var savingsId = Guid.NewGuid();
+        var debtId = Guid.NewGuid();
+        var activeChildId = Guid.NewGuid();
+        var deletedChildId = Guid.NewGuid();
+        var oldChildTimestamp = DateTimeOffset.UtcNow.AddDays(-2);
+        await host.WithDatabaseAsync(async db =>
+        {
+            db.BudgetProfiles.Add(new BudgetProfileRecord { Id = profileId, OwnerAccountId = owner, Name = "Home", MainCurrencyCode = "GBP" });
+            db.Categories.AddRange(
+                new CategoryRecord { Id = ordinaryId, ProfileId = profileId, Name = "Groceries", Kind = "ordinary" },
+                new CategoryRecord { Id = incomeId, ProfileId = profileId, Name = "Wages", Kind = "income" },
+                new CategoryRecord { Id = savingsId, ProfileId = profileId, Name = "Savings", Kind = "savings" },
+                new CategoryRecord { Id = debtId, ProfileId = profileId, Name = "Debt", Kind = "debt" });
+            db.Subcategories.AddRange(
+                new SubcategoryRecord { Id = activeChildId, CategoryId = ordinaryId, Name = "Market", Comment = "retained" },
+                new SubcategoryRecord { Id = deletedChildId, CategoryId = ordinaryId, Name = "Old market", TrackingStoppedAt = oldChildTimestamp });
+            db.ProfileAccess.AddRange(
+                new ProfileAccessRecord { ProfileId = profileId, AccountId = editor, Role = "editor" },
+                new ProfileAccessRecord { ProfileId = profileId, AccountId = viewer, Role = "view_only" });
+            return await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        });
+
+        using var ownerClient = await SignedInClient(host, owner);
+        using var noProofClient = await SignedInClient(host, owner, includeAntiforgery: false);
+        using var editorClient = await SignedInClient(host, editor);
+        using var viewerClient = await SignedInClient(host, viewer);
+        var before = await ownerClient.GetFromJsonAsync<JsonDocument>($"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+        var ordinary = Assert.Single(before!.RootElement.GetProperty("categories").EnumerateArray(), value => value.GetProperty("id").GetGuid() == ordinaryId);
+        var systemCategories = before.RootElement.GetProperty("categories").EnumerateArray()
+            .Where(value => value.GetProperty("kind").GetString() != "ordinary").ToArray();
+        foreach (var systemCategory in systemCategories)
+        {
+            var systemId = systemCategory.GetProperty("id").GetGuid();
+            using var beforeRenameDelete = await DeleteCategoryAsync(editorClient, profileId, systemId,
+                systemCategory.GetProperty("version").GetString()!);
+            Assert.Equal(HttpStatusCode.Conflict, beforeRenameDelete.StatusCode);
+            using var rename = await editorClient.PutAsJsonAsync($"/api/budget-profiles/{profileId}/categories/{systemId}",
+                new { name = $"Renamed {systemCategory.GetProperty("kind").GetString()}", comment = (string?)null, version = systemCategory.GetProperty("version").GetString() },
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, rename.StatusCode);
+        }
+        using var noProofDelete = await DeleteCategoryAsync(noProofClient, profileId, ordinaryId, ordinary.GetProperty("version").GetString()!);
+        Assert.Equal(HttpStatusCode.BadRequest, noProofDelete.StatusCode);
+        Assert.True(noProofDelete.Headers.CacheControl?.NoStore);
+        using var viewerDelete = await DeleteCategoryAsync(viewerClient, profileId, ordinaryId, ordinary.GetProperty("version").GetString()!);
+        Assert.Equal(HttpStatusCode.NotFound, viewerDelete.StatusCode);
+        using var stopped = await DeleteCategoryAsync(ownerClient, profileId, ordinaryId, ordinary.GetProperty("version").GetString()!);
+        Assert.Equal(HttpStatusCode.OK, stopped.StatusCode);
+        Assert.True(stopped.Headers.CacheControl?.NoStore);
+        var renamed = await ownerClient.GetFromJsonAsync<JsonDocument>($"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+        foreach (var systemCategory in renamed!.RootElement.GetProperty("categories").EnumerateArray()
+                     .Where(value => value.GetProperty("kind").GetString() != "ordinary"))
+        {
+            using var afterRenameDelete = await DeleteCategoryAsync(editorClient, profileId,
+                systemCategory.GetProperty("id").GetGuid(), systemCategory.GetProperty("version").GetString()!);
+            Assert.Equal(HttpStatusCode.Conflict, afterRenameDelete.StatusCode);
+        }
+        await host.WithDatabaseAsync(async db =>
+        {
+            await Assert.ThrowsAsync<SqlException>(async () => await db.Categories.Where(value => value.Id == incomeId)
+                .ExecuteUpdateAsync(update => update.SetProperty(value => value.TrackingStoppedAt, DateTimeOffset.UtcNow),
+                    TestContext.Current.CancellationToken));
+            return true;
+        });
+
+        var after = await ownerClient.GetFromJsonAsync<JsonDocument>($"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+        var retainedCategory = Assert.Single(after!.RootElement.GetProperty("categories").EnumerateArray(), value => value.GetProperty("id").GetGuid() == ordinaryId);
+        Assert.True(retainedCategory.GetProperty("trackingStoppedAt").ValueKind != System.Text.Json.JsonValueKind.Null);
+        using var staleDelete = await DeleteCategoryAsync(editorClient, profileId, ordinaryId, ordinary.GetProperty("version").GetString()!);
+        Assert.Equal(HttpStatusCode.Conflict, staleDelete.StatusCode);
+        var firstTimestamp = retainedCategory.GetProperty("trackingStoppedAt").GetDateTimeOffset();
+        using var repeatedDelete = await DeleteCategoryAsync(editorClient, profileId, ordinaryId, retainedCategory.GetProperty("version").GetString()!);
+        Assert.Equal(HttpStatusCode.OK, repeatedDelete.StatusCode);
+        var afterRepeat = await ownerClient.GetFromJsonAsync<JsonDocument>($"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+        retainedCategory = Assert.Single(afterRepeat!.RootElement.GetProperty("categories").EnumerateArray(), value => value.GetProperty("id").GetGuid() == ordinaryId);
+        Assert.Equal(firstTimestamp, retainedCategory.GetProperty("trackingStoppedAt").GetDateTimeOffset());
+        var children = retainedCategory.GetProperty("subcategories").EnumerateArray().ToArray();
+        Assert.Equal(2, children.Length);
+        var retainedActive = Assert.Single(children, value => value.GetProperty("id").GetGuid() == activeChildId);
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, retainedActive.GetProperty("trackingStoppedAt").ValueKind);
+        Assert.False(retainedActive.GetProperty("isAvailableForTracking").GetBoolean());
+        Assert.Equal("retained", retainedActive.GetProperty("comment").GetString());
+        var retainedDeleted = Assert.Single(children, value => value.GetProperty("id").GetGuid() == deletedChildId);
+        Assert.Equal(oldChildTimestamp, retainedDeleted.GetProperty("trackingStoppedAt").GetDateTimeOffset());
+        Assert.False(retainedDeleted.GetProperty("isAvailableForTracking").GetBoolean());
+
+        using var blockedCreate = await ownerClient.PostAsJsonAsync($"/api/budget-profiles/{profileId}/categories/{ordinaryId}/subcategories",
+            new { name = "Cannot add" }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, blockedCreate.StatusCode);
+        using var blockedEdit = await ownerClient.PutAsJsonAsync($"/api/budget-profiles/{profileId}/categories/{ordinaryId}/subcategories/{activeChildId}",
+            new { name = "Cannot edit", comment = (string?)null, version = retainedActive.GetProperty("version").GetString() }, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, blockedEdit.StatusCode);
+        using var childDelete = await DeleteSubcategoryAsync(editorClient, profileId, ordinaryId, activeChildId,
+            retainedActive.GetProperty("version").GetString()!);
+        Assert.Equal(HttpStatusCode.OK, childDelete.StatusCode);
+
+        await host.WithDatabaseAsync(async db =>
+        {
+            var parent = await db.Categories.SingleAsync(value => value.Id == ordinaryId, TestContext.Current.CancellationToken);
+            Assert.Equal("ordinary", parent.Kind);
+            Assert.Equal("Renamed income", (await db.Categories.SingleAsync(value => value.Id == incomeId, TestContext.Current.CancellationToken)).Name);
+            Assert.NotNull((await db.Subcategories.SingleAsync(value => value.Id == activeChildId, TestContext.Current.CancellationToken)).TrackingStoppedAt);
+            Assert.Equal(oldChildTimestamp, (await db.Subcategories.SingleAsync(value => value.Id == deletedChildId, TestContext.Current.CancellationToken)).TrackingStoppedAt);
+            return true;
+        });
+    }
+
+    [Fact]
+    public async Task Concurrent_category_retirement_and_child_creation_leave_no_new_active_tracking()
+    {
+        await using var host = new AccountTestHost();
+        await host.MigrateAsync();
+        var owner = await AddAccount(host);
+        var profileId = Guid.NewGuid();
+        var categoryId = Guid.NewGuid();
+        await host.WithDatabaseAsync(async db =>
+        {
+            db.BudgetProfiles.Add(new BudgetProfileRecord { Id = profileId, OwnerAccountId = owner, Name = "Home", MainCurrencyCode = "GBP" });
+            db.Categories.AddRange(
+                new CategoryRecord { Id = categoryId, ProfileId = profileId, Name = "Groceries", Kind = "ordinary" },
+                new CategoryRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "Income", Kind = "income" },
+                new CategoryRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "Savings", Kind = "savings" },
+                new CategoryRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "Debt", Kind = "debt" });
+            return await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        });
+        using var client = await SignedInClient(host, owner);
+        using var loaded = await client.GetAsync($"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+        using var document = JsonDocument.Parse(await loaded.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var category = Assert.Single(document.RootElement.GetProperty("categories").EnumerateArray(), value => value.GetProperty("id").GetGuid() == categoryId);
+        var version = category.GetProperty("version").GetString()!;
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var createRequests = Enumerable.Range(0, 4).Select(async index =>
+        {
+            await gate.Task;
+            return await client.PostAsJsonAsync($"/api/budget-profiles/{profileId}/categories/{categoryId}/subcategories",
+                new { name = $"Child {index}" }, TestContext.Current.CancellationToken);
+        }).ToArray();
+        var deleteRequest = Task.Run(async () =>
+        {
+            await gate.Task;
+            return await DeleteCategoryAsync(client, profileId, categoryId, version);
+        }, TestContext.Current.CancellationToken);
+        gate.SetResult();
+        var creates = await Task.WhenAll(createRequests);
+        using var deleted = await deleteRequest;
+        Assert.Equal(HttpStatusCode.OK, deleted.StatusCode);
+        Assert.All(creates, response => Assert.Contains(response.StatusCode, new[] { HttpStatusCode.Created, HttpStatusCode.NotFound }));
+
+        using var finalResponse = await client.GetAsync($"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+        using var finalDocument = JsonDocument.Parse(await finalResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        var finalCategory = Assert.Single(finalDocument.RootElement.GetProperty("categories").EnumerateArray(), value => value.GetProperty("id").GetGuid() == categoryId);
+        Assert.NotEqual(System.Text.Json.JsonValueKind.Null, finalCategory.GetProperty("trackingStoppedAt").ValueKind);
+        var children = finalCategory.GetProperty("subcategories").EnumerateArray().ToArray();
+        Assert.Equal(creates.Count(response => response.StatusCode == HttpStatusCode.Created), children.Length);
+        Assert.All(children, child =>
+        {
+            Assert.False(child.GetProperty("isAvailableForTracking").GetBoolean());
+            Assert.Equal(System.Text.Json.JsonValueKind.Null, child.GetProperty("trackingStoppedAt").ValueKind);
+        });
+        foreach (var response in creates) response.Dispose();
+    }
+
+    private static async Task<HttpResponseMessage> DeleteCategoryAsync(HttpClient client, Guid profileId, Guid categoryId, string version)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/budget-profiles/{profileId}/categories/{categoryId}")
+        {
+            Content = JsonContent.Create(new { version })
+        };
+        return await client.SendAsync(request, TestContext.Current.CancellationToken);
+    }
+
+    private static async Task<HttpResponseMessage> DeleteSubcategoryAsync(HttpClient client, Guid profileId, Guid categoryId, Guid subcategoryId, string version)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Delete,
+            $"/api/budget-profiles/{profileId}/categories/{categoryId}/subcategories/{subcategoryId}")
+        {
+            Content = JsonContent.Create(new { version })
+        };
+        return await client.SendAsync(request, TestContext.Current.CancellationToken);
     }
 
     private static async Task<Guid> AddAccount(AccountTestHost host)

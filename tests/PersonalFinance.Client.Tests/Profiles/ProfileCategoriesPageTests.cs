@@ -260,6 +260,34 @@ public sealed class ProfileCategoriesPageTests
     }
 
     [Fact]
+    public async Task Parent_retirement_disables_child_edits_and_creation_but_allows_individual_child_retirement()
+    {
+        var id = Guid.NewGuid();
+        var handler = new CategoryLifecycleHandler(id);
+        await using var context = CreateContext(handler, id);
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("Groceries", page.Markup));
+
+        Assert.Contains(page.FindAll("button"), button => button.TextContent.Contains("Stop tracking category"));
+        var systemItems = page.FindAll("ul[aria-label='Profile categories'] li")
+            .Where(item => item.TextContent.Contains("System category:")).ToArray();
+        Assert.All(systemItems, item => Assert.DoesNotContain(item.QuerySelectorAll("button"), button => button.TextContent.Contains("Stop tracking category")));
+        page.FindAll("button").Single(button => button.TextContent.Contains("Stop tracking category")).Click();
+        page.WaitForAssertion(() => Assert.Contains("Unavailable for new tracking because this category has stopped tracking.", page.Markup));
+
+        var ordinary = page.FindAll("ul[aria-label='Profile categories'] li").Single(item => item.TextContent.Contains("Category type: Ordinary"));
+        Assert.Empty(ordinary.QuerySelectorAll("input, textarea"));
+        Assert.DoesNotContain(ordinary.QuerySelectorAll("button"), button => button.TextContent.Contains("Add subcategory"));
+        ordinary.QuerySelectorAll("button").Single(button => button.TextContent.Contains("Stop tracking subcategory")).Click();
+        page.WaitForAssertion(() => Assert.Contains("Tracking stopped on 2026-11-12 13:00 UTC", page.Markup));
+
+        Assert.Equal(2, handler.Writes.Count);
+        Assert.Contains(handler.Paths, path => path.EndsWith("/categories/44444444-4444-4444-4444-444444444444", StringComparison.Ordinal));
+        Assert.Contains(handler.Paths, path => path.EndsWith("/subcategories/55555555-5555-5555-5555-555555555555", StringComparison.Ordinal));
+        Assert.All(handler.Headers, headers => Assert.Contains("X-CSRF-TOKEN", headers));
+    }
+
+    [Fact]
     public async Task Unknown_subcategory_create_outcome_requires_review_before_retry()
     {
         var id = Guid.NewGuid();
@@ -339,9 +367,9 @@ public sealed class ProfileCategoriesPageTests
             profileId = id, role,
             categories = empty ? [] : new[]
             {
-                new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = incomeName, kind = "income", comment = (string?)null, version = "AQID", subcategories = Array.Empty<object>() },
-                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Rainy day", kind = "savings", comment = (string?)null, version = "AQIE", subcategories = Array.Empty<object>() },
-                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Loans", kind = "debt", comment = (string?)null, version = "AQIF", subcategories = Array.Empty<object>() }
+                new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = incomeName, kind = "income", comment = (string?)null, version = "AQID", trackingStoppedAt = (string?)null, subcategories = Array.Empty<object>() },
+                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Rainy day", kind = "savings", comment = (string?)null, version = "AQIE", trackingStoppedAt = (string?)null, subcategories = Array.Empty<object>() },
+                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Loans", kind = "debt", comment = (string?)null, version = "AQIF", trackingStoppedAt = (string?)null, subcategories = Array.Empty<object>() }
             }
         })
     };
@@ -422,15 +450,16 @@ public sealed class ProfileCategoriesPageTests
             role = "owner",
             categories = new[]
             {
-                new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = categoryName, kind = "income", comment = (string?)null, version = currentVersion, subcategories = Array.Empty<object>() },
-                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Savings", kind = "savings", comment = (string?)null, version = "AQIE", subcategories = Array.Empty<object>() },
-                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Debt", kind = "debt", comment = (string?)null, version = "AQIF", subcategories = Array.Empty<object>() }
+                new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = categoryName, kind = "income", comment = (string?)null, version = currentVersion, trackingStoppedAt = (string?)null, subcategories = Array.Empty<object>() },
+                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Savings", kind = "savings", comment = (string?)null, version = "AQIE", trackingStoppedAt = (string?)null, subcategories = Array.Empty<object>() },
+                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Debt", kind = "debt", comment = (string?)null, version = "AQIF", trackingStoppedAt = (string?)null, subcategories = Array.Empty<object>() }
             }
         })
     };
 
     private static HttpResponseMessage CategoriesWithSubcategory(Guid id, string role = "owner", string childName = "Groceries",
-        string childVersion = "AQID", string? childComment = "Weekly shop", string? trackingStoppedAt = null) => new(HttpStatusCode.OK)
+        string childVersion = "AQID", string? childComment = "Weekly shop", string? trackingStoppedAt = null,
+        string? parentTrackingStoppedAt = null) => new(HttpStatusCode.OK)
     {
         Content = JsonContent.Create(new
         {
@@ -440,11 +469,11 @@ public sealed class ProfileCategoriesPageTests
             {
                 new
                 {
-                    id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = "Income", kind = "income", comment = (string?)null, version = "AQIE",
-                    subcategories = (IReadOnlyList<object>)new object[] { new { id = Guid.Parse("44444444-4444-4444-4444-444444444444"), categoryId = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = childName, comment = childComment, trackingStoppedAt, version = childVersion } }
+                    id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = "Income", kind = "income", comment = (string?)null, version = "AQIE", trackingStoppedAt = parentTrackingStoppedAt,
+                    subcategories = (IReadOnlyList<object>)new object[] { new { id = Guid.Parse("44444444-4444-4444-4444-444444444444"), categoryId = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = childName, comment = childComment, trackingStoppedAt, isAvailableForTracking = parentTrackingStoppedAt is null && trackingStoppedAt is null, version = childVersion } }
                 },
-                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Savings", kind = "savings", comment = (string?)null, version = "AQIF", subcategories = (IReadOnlyList<object>)Array.Empty<object>() },
-                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Debt", kind = "debt", comment = (string?)null, version = "AQIG", subcategories = (IReadOnlyList<object>)Array.Empty<object>() }
+                new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Savings", kind = "savings", comment = (string?)null, version = "AQIF", trackingStoppedAt = (string?)null, subcategories = (IReadOnlyList<object>)Array.Empty<object>() },
+                new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Debt", kind = "debt", comment = (string?)null, version = "AQIG", trackingStoppedAt = (string?)null, subcategories = (IReadOnlyList<object>)Array.Empty<object>() }
             }
         })
     };
@@ -527,6 +556,58 @@ public sealed class ProfileCategoriesPageTests
             Headers.AddRange(request.Headers.Select(header => header.Key));
             Writes.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
             _stopped = true;
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
+    private sealed class CategoryLifecycleHandler(Guid profileId) : HttpMessageHandler
+    {
+        private bool _categoryStopped;
+        private bool _subcategoryStopped;
+        public List<string> Writes { get; } = [];
+        public List<string> Paths { get; } = [];
+        public List<string[]> Headers { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/auth/session")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { authenticated = true, email = "person@example.test" }) };
+            if (request.RequestUri.AbsolutePath == "/api/auth/antiforgery")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { requestToken = "synthetic-csrf" }) };
+            if (request.Method == HttpMethod.Get)
+            {
+                var stopped = _categoryStopped ? "2026-11-12T12:00:00+00:00" : null;
+                var childStopped = _subcategoryStopped ? "2026-11-12T13:00:00+00:00" : null;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new
+                    {
+                        profileId,
+                        role = "owner",
+                        categories = new object[]
+                        {
+                            new { id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = "Income", kind = "income", comment = (string?)null, version = "AQID", trackingStoppedAt = (string?)null, subcategories = Array.Empty<object>() },
+                            new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Savings", kind = "savings", comment = (string?)null, version = "AQIE", trackingStoppedAt = (string?)null, subcategories = Array.Empty<object>() },
+                            new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Debt", kind = "debt", comment = (string?)null, version = "AQIF", trackingStoppedAt = (string?)null, subcategories = Array.Empty<object>() },
+                            new
+                            {
+                                id = Guid.Parse("44444444-4444-4444-4444-444444444444"), name = "Groceries", kind = "ordinary", comment = (string?)null,
+                                version = _categoryStopped ? "BAUG" : "AQIG", trackingStoppedAt = stopped,
+                                subcategories = new object[]
+                                {
+                                    new { id = Guid.Parse("55555555-5555-5555-5555-555555555555"), categoryId = Guid.Parse("44444444-4444-4444-4444-444444444444"), name = "Market", comment = (string?)"Weekly", trackingStoppedAt = childStopped, isAvailableForTracking = !_categoryStopped && !_subcategoryStopped, version = _subcategoryStopped ? "BAUI" : "AQIH" }
+                                }
+                            }
+                        }
+                    })
+                };
+            }
+
+            Paths.Add(request.RequestUri.AbsolutePath);
+            Headers.Add(request.Headers.Select(header => header.Key).ToArray());
+            Writes.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
+            if (request.RequestUri.AbsolutePath.Contains("/subcategories/", StringComparison.Ordinal)) _subcategoryStopped = true;
+            else _categoryStopped = true;
             return new HttpResponseMessage(HttpStatusCode.OK);
         }
     }

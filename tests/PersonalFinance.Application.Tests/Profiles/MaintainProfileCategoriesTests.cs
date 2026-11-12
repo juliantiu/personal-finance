@@ -59,6 +59,26 @@ public sealed class MaintainProfileCategoriesTests
         Assert.Null(writer.AccountId);
     }
 
+    [Fact]
+    public async Task Stop_tracking_resolves_the_current_account_and_forwards_the_expected_version()
+    {
+        var accountId = Guid.NewGuid();
+        var profileId = Guid.NewGuid();
+        var categoryId = Guid.NewGuid();
+        var version = new byte[] { 3, 5, 7 };
+        var writer = new Writer { StopResult = StopTrackingProfileCategoryResult.Stopped };
+        var handler = new StopTrackingProfileCategoryHandler(new CurrentAccount(accountId), writer);
+
+        var result = await handler.Handle(new StopTrackingProfileCategoryCommand(profileId, categoryId, Convert.ToBase64String(version)),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(StopTrackingProfileCategoryResult.Stopped, result);
+        Assert.Equal(accountId, writer.AccountId);
+        Assert.Equal(profileId, writer.ProfileId);
+        Assert.Equal(categoryId, writer.CategoryId);
+        Assert.Equal(version, writer.ExpectedVersion);
+    }
+
     private sealed class CurrentAccount(Guid? id) : ICurrentAccount
     {
         public Task<Guid?> GetAccountIdAsync(CancellationToken cancellationToken) => Task.FromResult(id);
@@ -73,6 +93,7 @@ public sealed class MaintainProfileCategoriesTests
         public ProfileCategoryMetadata? Metadata { get; private set; }
         public byte[]? ExpectedVersion { get; private set; }
         public UpdateProfileCategoryResult UpdateResult { get; init; } = UpdateProfileCategoryResult.Updated;
+        public StopTrackingProfileCategoryResult StopResult { get; init; } = StopTrackingProfileCategoryResult.Stopped;
 
         public Task<Guid?> CreateAsync(Guid accountId, Guid profileId, DomainProfileCategory category, CancellationToken cancellationToken)
         {
@@ -91,6 +112,16 @@ public sealed class MaintainProfileCategoriesTests
             Metadata = metadata;
             ExpectedVersion = expectedVersion;
             return Task.FromResult(UpdateResult);
+        }
+
+        public Task<StopTrackingProfileCategoryResult> StopTrackingAsync(Guid accountId, Guid profileId, Guid categoryId,
+            byte[] expectedVersion, CancellationToken cancellationToken)
+        {
+            AccountId = accountId;
+            ProfileId = profileId;
+            CategoryId = categoryId;
+            ExpectedVersion = expectedVersion;
+            return Task.FromResult(StopResult);
         }
     }
 }

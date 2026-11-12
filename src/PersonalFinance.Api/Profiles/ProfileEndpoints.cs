@@ -15,6 +15,7 @@ public static class ProfileEndpoints
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/categories", GetCategoriesAsync);
         endpoints.MapPost("/api/budget-profiles/{profileId:guid}/categories", CreateCategoryAsync);
         endpoints.MapPut("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}", UpdateCategoryAsync);
+        endpoints.MapDelete("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}", StopTrackingCategoryAsync);
         endpoints.MapPost("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}/subcategories", CreateSubcategoryAsync);
         endpoints.MapPut("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}/subcategories/{subcategoryId:guid}", UpdateSubcategoryAsync);
         endpoints.MapDelete("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}/subcategories/{subcategoryId:guid}", StopTrackingSubcategoryAsync);
@@ -30,13 +31,42 @@ public static class ProfileEndpoints
             if (categories is null) return Results.NotFound();
             return Results.Ok(new ProfileCategoriesResponse(categories.ProfileId, categories.Role,
                 categories.Categories.Select(category => new ProfileCategoryResponse(category.Id, category.Name, category.Kind,
-                    category.Comment, Convert.ToBase64String(category.Version), category.Subcategories.Select(subcategory =>
+                    category.Comment, Convert.ToBase64String(category.Version), category.TrackingStoppedAt, category.Subcategories.Select(subcategory =>
                         new ProfileSubcategoryResponse(subcategory.Id, subcategory.CategoryId, subcategory.Name,
-                            subcategory.Comment, subcategory.TrackingStoppedAt, Convert.ToBase64String(subcategory.Version))).ToArray())).ToArray()));
+                            subcategory.Comment, subcategory.TrackingStoppedAt, subcategory.IsAvailableForTracking,
+                            Convert.ToBase64String(subcategory.Version))).ToArray())).ToArray()));
         }
         catch (UnauthenticatedAccountException)
         {
             return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign in to access this budget profile.");
+        }
+    }
+
+    private static async Task<IResult> StopTrackingCategoryAsync(Guid profileId, Guid categoryId,
+        [FromBody] StopTrackingCategoryRequest request, IMediator mediator, ICurrentAccount currentAccount,
+        IAntiforgery antiforgery, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            if (await currentAccount.GetAccountIdAsync(cancellationToken) is null) throw new UnauthenticatedAccountException();
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Problem(statusCode: 400, title: "The category request could not be validated. Refresh the page and try again.");
+            }
+            var result = await mediator.Send(new StopTrackingProfileCategoryCommand(profileId, categoryId, request.Version), cancellationToken);
+            return result switch
+            {
+                StopTrackingProfileCategoryResult.Stopped => Results.Ok(),
+                StopTrackingProfileCategoryResult.Protected => Results.Conflict(new { title = "System categories cannot stop tracking." }),
+                StopTrackingProfileCategoryResult.Conflict => Results.Conflict(new { title = "This category changed since you opened it. Reload the latest category before deleting it." }),
+                _ => Results.NotFound()
+            };
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: 401, title: "Sign in to manage profile categories.");
         }
     }
 

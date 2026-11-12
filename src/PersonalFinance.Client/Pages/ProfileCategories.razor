@@ -73,7 +73,16 @@
                     @foreach (var category in _categories.Categories)
                     {
                         <li @key="category.Id" class="mb-3">
-                            @if (IsWriter)
+                            @if (category.TrackingStoppedAt is not null)
+                            {
+                                <MudText>@category.Name</MudText>
+                                @if (!string.IsNullOrWhiteSpace(category.Comment))
+                                {
+                                    <MudText Typo="Typo.body2" Style="white-space: pre-wrap">Comment: @category.Comment</MudText>
+                                }
+                                <MudText Typo="Typo.body2" role="status">Category tracking stopped on @category.TrackingStoppedAt.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'").</MudText>
+                            }
+                            else if (IsWriter)
                             {
                                 <MudText Typo="Typo.subtitle1">@KindLabel(category.Kind) category</MudText>
                                 <MudTextField T="string" Label="Category name" Value="GetDraftName(category)"
@@ -99,6 +108,19 @@
                                 {
                                     <MudText Typo="Typo.body2" Style="white-space: pre-wrap">Comment: @category.Comment</MudText>
                                 }
+                            }
+                            @if (category.Kind == "ordinary" && category.TrackingStoppedAt is null && IsWriter)
+                            {
+                                <MudButton OnClick="() => StopTrackingCategoryAsync(category)"
+                                           Disabled="_retiringCategoryId == category.Id || _savingCategoryId == category.Id"
+                                           Variant="Variant.Outlined" Color="Color.Error" Class="ml-2">
+                                    @(_retiringCategoryId == category.Id ? "Stopping…" : "Stop tracking category")
+                                </MudButton>
+                            }
+                            @if (_categoryDeleteErrorId == category.Id)
+                            {
+                                <MudAlert Severity="Severity.Warning" Class="mt-2" role="alert">@_categoryDeleteError</MudAlert>
+                                <MudButton OnClick="ReloadAfterCategoryDeleteAsync" Variant="Variant.Outlined">Reload category</MudButton>
                             }
                             @if (category.Kind == "ordinary")
                             {
@@ -127,6 +149,23 @@
                                                     <MudText Typo="Typo.body2" Style="white-space: pre-wrap">Comment: @subcategory.Comment</MudText>
                                                 }
                                                 <MudText Typo="Typo.body2" role="status">Tracking stopped on @subcategory.TrackingStoppedAt.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'")</MudText>
+                                            }
+                                            else if (category.TrackingStoppedAt is not null)
+                                            {
+                                                <MudText>@subcategory.Name</MudText>
+                                                @if (!string.IsNullOrWhiteSpace(subcategory.Comment))
+                                                {
+                                                    <MudText Typo="Typo.body2" Style="white-space: pre-wrap">Comment: @subcategory.Comment</MudText>
+                                                }
+                                                <MudText Typo="Typo.body2" role="status">Unavailable for new tracking because this category has stopped tracking.</MudText>
+                                                @if (IsWriter)
+                                                {
+                                                    <MudButton OnClick="() => StopTrackingSubcategoryAsync(category, subcategory)"
+                                                               Disabled="_stoppingSubcategoryId == subcategory.Id"
+                                                               Variant="Variant.Outlined" Color="Color.Error" Class="ml-2">
+                                                        @(_stoppingSubcategoryId == subcategory.Id ? "Stopping…" : "Stop tracking subcategory")
+                                                    </MudButton>
+                                                }
                                             }
                                             else if (IsWriter)
                                             {
@@ -171,7 +210,7 @@
                                     }
                                 </ul>
                             }
-                            @if (IsWriter)
+                            @if (IsWriter && category.TrackingStoppedAt is null)
                             {
                                 <MudTextField T="string" Label="New subcategory name" Value="GetNewSubcategoryName(category.Id)"
                                               ValueChanged="value => SetNewSubcategoryName(category.Id, value)" MaxLength="100"
@@ -220,6 +259,9 @@
     private bool _creating;
     private bool _createUncertain;
     private Guid? _savingCategoryId;
+    private Guid? _retiringCategoryId;
+    private Guid? _categoryDeleteErrorId;
+    private string? _categoryDeleteError;
     private Guid? _conflictCategoryId;
     private Guid? _creatingSubcategoryCategoryId;
     private Guid? _uncertainSubcategoryCategoryId;
@@ -261,6 +303,8 @@
             _newSubcategoryComments.Clear();
             _conflictCategoryId = null;
             _conflictSubcategoryId = null;
+            _categoryDeleteErrorId = null;
+            _categoryDeleteError = null;
             _uncertainSubcategoryCategoryId = null;
         }
         var cancellationToken = requestCancellation.Token;
@@ -393,6 +437,59 @@
         finally { _savingCategoryId = null; }
     }
 
+    private async Task StopTrackingCategoryAsync(ProfileCategoryResponse category)
+    {
+        if (_retiringCategoryId is not null || !IsWriter || category.Kind != "ordinary" || category.TrackingStoppedAt is not null) return;
+        _categoryDeleteErrorId = null;
+        _categoryDeleteError = null;
+        _retiringCategoryId = category.Id;
+        try
+        {
+            var token = await GetAntiforgeryTokenAsync();
+            using var request = CredentialedRequest(HttpMethod.Delete, $"api/budget-profiles/{ProfileId}/categories/{category.Id}");
+            request.Headers.Add("X-CSRF-TOKEN", token);
+            request.Content = JsonContent.Create(new StopTrackingCategoryRequest(category.Version));
+            using var response = await Http.SendAsync(request, _lifetime.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            if (response.StatusCode == HttpStatusCode.NotFound) { SetUnavailable(); return; }
+            if (response.StatusCode == HttpStatusCode.Conflict)
+            {
+                await LoadCategoriesAsync(preserveDrafts: true);
+                _categoryDeleteErrorId = category.Id;
+                _categoryDeleteError = "This category changed before the request completed. Review its latest status before trying again.";
+                return;
+            }
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadAsync();
+                return;
+            }
+            _categoryDeleteErrorId = category.Id;
+            _categoryDeleteError = "We couldn't confirm the tracking change. Reload the category to check its saved status.";
+            await LoadCategoriesAsync(preserveDrafts: true);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            _categoryDeleteErrorId = category.Id;
+            _categoryDeleteError = "We couldn't confirm the tracking change. Reload the category to check its saved status.";
+            await LoadCategoriesAsync(preserveDrafts: true);
+        }
+        finally { _retiringCategoryId = null; }
+    }
+
+    private async Task ReloadAfterCategoryDeleteAsync()
+    {
+        var categoryId = _categoryDeleteErrorId;
+        await LoadCategoriesAsync(preserveDrafts: true);
+        if (_categories?.Categories.Any(category => category.Id == categoryId) != true) SetUnavailable();
+        else
+        {
+            _categoryDeleteErrorId = null;
+            _categoryDeleteError = null;
+        }
+    }
+
     private async Task CreateSubcategoryAsync(ProfileCategoryResponse category)
     {
         if (_creatingSubcategoryCategoryId is not null || _uncertainSubcategoryCategoryId is not null || !IsWriter) return;
@@ -439,7 +536,6 @@
         finally { _creatingSubcategoryCategoryId = null; }
     }
 
-    // Comment ID: METHOD-076. Saves child metadata against the version shown and keeps the local draft after a conflict.
     private async Task SaveSubcategoryAsync(ProfileCategoryResponse category, ProfileSubcategoryResponse subcategory)
     {
         if (_savingSubcategoryId is not null || !IsWriter) return;

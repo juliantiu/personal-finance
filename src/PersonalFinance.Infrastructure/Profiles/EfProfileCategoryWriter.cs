@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using PersonalFinance.Application.Profiles;
 using PersonalFinance.Domain.Profiles;
@@ -27,10 +28,13 @@ public sealed class EfProfileCategoryWriter(AccountIdentityDbContext database) :
     public async Task<UpdateProfileCategoryResult> UpdateAsync(Guid accountId, Guid profileId, Guid categoryId,
         ProfileCategoryMetadata metadata, byte[] expectedVersion, CancellationToken cancellationToken)
     {
+        await using var transaction = await database.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        await EfProfileCategoryWriteLock.AcquireAsync(database, categoryId, cancellationToken);
         if (!await CanEditAsync(accountId, profileId, cancellationToken)) return UpdateProfileCategoryResult.NotFound;
         var record = await database.Categories.SingleOrDefaultAsync(category =>
             category.ProfileId == profileId && category.Id == categoryId, cancellationToken);
         if (record is null) return UpdateProfileCategoryResult.NotFound;
+        if (record.TrackingStoppedAt is not null) return UpdateProfileCategoryResult.NotFound;
         if (!record.Version.SequenceEqual(expectedVersion)) return UpdateProfileCategoryResult.Conflict;
 
         // Why is the next line necessary, I mean, why instantiate create DomainProfileCategory if all we are going to do is change the record name and comment?
@@ -41,11 +45,40 @@ public sealed class EfProfileCategoryWriter(AccountIdentityDbContext database) :
         try
         {
             await database.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return UpdateProfileCategoryResult.Updated;
         }
         catch (DbUpdateConcurrencyException)
         {
             return UpdateProfileCategoryResult.Conflict;
+        }
+    }
+
+    public async Task<StopTrackingProfileCategoryResult> StopTrackingAsync(Guid accountId, Guid profileId,
+        Guid categoryId, byte[] expectedVersion, CancellationToken cancellationToken)
+    {
+        await using var transaction = await database.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        await EfProfileCategoryWriteLock.AcquireAsync(database, categoryId, cancellationToken);
+        if (!await CanEditAsync(accountId, profileId, cancellationToken)) return StopTrackingProfileCategoryResult.NotFound;
+        var record = await database.Categories.SingleOrDefaultAsync(category =>
+            category.ProfileId == profileId && category.Id == categoryId, cancellationToken);
+        if (record is null) return StopTrackingProfileCategoryResult.NotFound;
+        if (record.Kind != "ordinary") return StopTrackingProfileCategoryResult.Protected;
+        if (!record.Version.SequenceEqual(expectedVersion)) return StopTrackingProfileCategoryResult.Conflict;
+        if (record.TrackingStoppedAt is not null) return StopTrackingProfileCategoryResult.Stopped;
+
+        var category = DomainProfileCategory.Restore(record.Id, record.ProfileId, record.Name, record.Comment,
+            record.Kind, record.TrackingStoppedAt).StopTracking(DateTimeOffset.UtcNow);
+        record.TrackingStoppedAt = category.TrackingStoppedAt;
+        try
+        {
+            await database.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return StopTrackingProfileCategoryResult.Stopped;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return StopTrackingProfileCategoryResult.Conflict;
         }
     }
 

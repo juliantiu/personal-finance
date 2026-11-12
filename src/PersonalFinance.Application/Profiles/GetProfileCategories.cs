@@ -3,10 +3,10 @@ using Mediator;
 namespace PersonalFinance.Application.Profiles;
 
 public sealed record ProfileSubcategoryDetails(Guid Id, Guid CategoryId, string Name, string? Comment,
-    DateTimeOffset? TrackingStoppedAt, byte[] Version);
+    DateTimeOffset? TrackingStoppedAt, bool IsAvailableForTracking, byte[] Version);
 
 public sealed record ProfileCategory(Guid Id, string Name, string Kind, string? Comment, byte[] Version,
-    IReadOnlyList<ProfileSubcategoryDetails> Subcategories);
+    DateTimeOffset? TrackingStoppedAt, IReadOnlyList<ProfileSubcategoryDetails> Subcategories);
 
 public sealed record ProfileCategories(Guid ProfileId, string Role, IReadOnlyList<ProfileCategory> Categories);
 

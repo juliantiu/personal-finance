@@ -464,6 +464,9 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("ProfileId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<DateTimeOffset?>("TrackingStoppedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<byte[]>("Version")
                         .IsConcurrencyToken()
                         .IsRequired()
@@ -479,6 +482,8 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                     b.ToTable("Categories", null, t =>
                         {
                             t.HasCheckConstraint("CK_Categories_Kind", "[Kind] IN ('income', 'savings', 'debt', 'ordinary')");
+
+                            t.HasCheckConstraint("CK_Categories_Tracking", "[Kind] = 'ordinary' OR [TrackingStoppedAt] IS NULL");
                         });
                 });
 

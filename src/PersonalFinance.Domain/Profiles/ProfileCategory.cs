@@ -20,13 +20,14 @@ public sealed class ProfileCategory
     public const int MaximumNameLength = 100;
     public const int MaximumCommentLength = 2000;
 
-    private ProfileCategory(Guid id, Guid profileId, string name, string? comment, string kind)
+    private ProfileCategory(Guid id, Guid profileId, string name, string? comment, string kind, DateTimeOffset? trackingStoppedAt)
     {
         Id = id;
         ProfileId = profileId;
         Name = name;
         Comment = comment;
         Kind = kind;
+        TrackingStoppedAt = trackingStoppedAt;
     }
 
     public Guid Id { get; }
@@ -34,24 +35,36 @@ public sealed class ProfileCategory
     public string Name { get; }
     public string? Comment { get; }
     public string Kind { get; }
+    public DateTimeOffset? TrackingStoppedAt { get; }
 
-    public static ProfileCategory Restore(Guid id, Guid profileId, string name, string? comment, string kind)
+    public static ProfileCategory Restore(Guid id, Guid profileId, string name, string? comment, string kind,
+        DateTimeOffset? trackingStoppedAt = null)
     {
         if (id == Guid.Empty || profileId == Guid.Empty) throw new ArgumentException("A category and profile are required.");
-        return new ProfileCategory(id, profileId, name, comment, kind);
+        return new ProfileCategory(id, profileId, name, comment, kind, trackingStoppedAt);
     }
 
     public static ProfileCategory CreateOrdinary(Guid profileId, string? name, string? comment)
     {
         if (profileId == Guid.Empty) throw new ArgumentException("A profile is required.", nameof(profileId));
         var metadata = ProfileCategoryMetadata.Create(name, comment);
-        return new ProfileCategory(Guid.NewGuid(), profileId, metadata.Name, metadata.Comment, "ordinary");
+        return new ProfileCategory(Guid.NewGuid(), profileId, metadata.Name, metadata.Comment, "ordinary", null);
     }
 
     public ProfileCategory ChangeMetadata(string? name, string? comment) 
     {
+        if (TrackingStoppedAt is not null)
+            throw new InvalidOperationException("A category that has stopped tracking cannot be edited.");
         var metadata = ProfileCategoryMetadata.Create(name, comment);
-        return new ProfileCategory(Id, ProfileId, metadata.Name, metadata.Comment, Kind);
+        return new ProfileCategory(Id, ProfileId, metadata.Name, metadata.Comment, Kind, TrackingStoppedAt);
+    }
+
+    public ProfileCategory StopTracking(DateTimeOffset stoppedAt)
+    {
+        if (Kind != "ordinary") throw new InvalidOperationException("System categories cannot stop tracking.");
+        return TrackingStoppedAt is not null
+            ? this
+            : new ProfileCategory(Id, ProfileId, Name, Comment, Kind, stoppedAt);
     }
 
 }

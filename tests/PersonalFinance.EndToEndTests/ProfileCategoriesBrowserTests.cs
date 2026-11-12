@@ -12,6 +12,73 @@ namespace PersonalFinance.EndToEndTests;
 public sealed class ProfileCategoriesBrowserTests
 {
     [Fact]
+    public async Task Ordinary_category_stop_retains_children_and_allows_child_retirement_after_reload()
+    {
+        await using var browser = await BrowserSession.StartAsync();
+        Guid accountId;
+        using (var scope = browser.Api.Services.CreateScope())
+        {
+            var manager = scope.ServiceProvider.GetRequiredService<UserManager<AccountIdentityUser>>();
+            var account = new AccountIdentityUser { UserName = "category-stop@example.test", Email = "category-stop@example.test", EmailConfirmed = true };
+            Assert.True((await manager.CreateAsync(account, "abcdefghijkl")).Succeeded);
+            accountId = account.Id;
+        }
+        var profileId = Guid.NewGuid();
+        var categoryId = Guid.NewGuid();
+        var subcategoryId = Guid.NewGuid();
+        await browser.Api.WithDatabaseAsync(async db =>
+        {
+            db.BudgetProfiles.Add(new BudgetProfileRecord { Id = profileId, OwnerAccountId = accountId, Name = "Retained category", MainCurrencyCode = "GBP" });
+            db.Categories.AddRange(
+                new CategoryRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "Income", Kind = "income" },
+                new CategoryRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "Savings", Kind = "savings" },
+                new CategoryRecord { Id = Guid.NewGuid(), ProfileId = profileId, Name = "Debt", Kind = "debt" },
+                new CategoryRecord { Id = categoryId, ProfileId = profileId, Name = "Groceries", Kind = "ordinary", Comment = "Monthly budget" });
+            db.Subcategories.Add(new SubcategoryRecord { Id = subcategoryId, CategoryId = categoryId, Name = "Market", Comment = "Weekly shop" });
+            return await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        });
+
+        var page = browser.Page;
+        var categoriesUrl = browser.ClientUrl + $"/budget-profiles/{profileId}/categories";
+        await page.GotoAsync(browser.ClientUrl + $"/login?returnUrl=%2Fbudget-profiles%2F{profileId}%2Fcategories");
+        await page.GetByLabel("Email address", new() { Exact = true }).FillAsync("category-stop@example.test");
+        await page.GetByLabel("Password", new() { Exact = true }).FillAsync("abcdefghijkl");
+        await page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync();
+        await Expect(page).ToHaveURLAsync(categoriesUrl);
+
+        var category = page.GetByRole(AriaRole.List, new() { Name = "Profile categories", Exact = true })
+            .GetByRole(AriaRole.Listitem).Filter(new() { HasText = "Category type: Ordinary" });
+        await Expect(category).ToContainTextAsync("Category type: Ordinary");
+        var categoryStop = page.WaitForResponseAsync(response => response.Url.EndsWith($"/categories/{categoryId}", StringComparison.Ordinal)
+            && response.Request.Method == "DELETE");
+        await category.GetByRole(AriaRole.Button, new() { Name = "Stop tracking category", Exact = true }).ClickAsync();
+        Assert.Equal(200, (int)(await categoryStop).Status);
+        await Expect(category).ToContainTextAsync("Category tracking stopped on");
+        await Expect(category).ToContainTextAsync("Unavailable for new tracking because this category has stopped tracking.");
+        await Expect(category.GetByLabel("Category name", new() { Exact = true })).ToHaveCountAsync(0);
+        await Expect(category.GetByLabel("New subcategory name", new() { Exact = true })).ToHaveCountAsync(0);
+        var income = page.GetByRole(AriaRole.List, new() { Name = "Profile categories", Exact = true }).GetByRole(AriaRole.Listitem)
+            .Filter(new() { HasText = "System category: Income" });
+        await Expect(income.GetByRole(AriaRole.Button, new() { Name = "Stop tracking category", Exact = true })).ToHaveCountAsync(0);
+        await page.ReloadAsync();
+        category = page.GetByRole(AriaRole.List, new() { Name = "Profile categories", Exact = true })
+            .GetByRole(AriaRole.Listitem).Filter(new() { HasText = "Category type: Ordinary" });
+        await Expect(category).ToContainTextAsync("Groceries");
+        await Expect(category).ToContainTextAsync("Weekly shop");
+        var child = category.GetByRole(AriaRole.List, new() { Name = "Subcategories for Groceries", Exact = true }).GetByRole(AriaRole.Listitem).First;
+        var childStop = page.WaitForResponseAsync(response => response.Url.Contains($"/subcategories/{subcategoryId}", StringComparison.Ordinal)
+            && response.Request.Method == "DELETE");
+        await child.GetByRole(AriaRole.Button, new() { Name = "Stop tracking subcategory", Exact = true }).ClickAsync();
+        Assert.Equal(200, (int)(await childStop).Status);
+        await Expect(child).ToContainTextAsync("Tracking stopped on");
+        await Expect(child).ToContainTextAsync("Weekly shop");
+        await page.ReloadAsync();
+        child = category.GetByRole(AriaRole.List, new() { Name = "Subcategories for Groceries", Exact = true }).GetByRole(AriaRole.Listitem).First;
+        await Expect(child).ToContainTextAsync("Tracking stopped on");
+        Assert.Empty(browser.PageErrors);
+    }
+
+    [Fact]
     public async Task Writer_can_stop_tracking_a_subcategory_and_review_it_after_reload()
     {
         await using var browser = await BrowserSession.StartAsync();

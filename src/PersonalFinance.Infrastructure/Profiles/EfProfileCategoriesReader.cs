@@ -27,6 +27,7 @@ public sealed class EfProfileCategoriesReader(AccountIdentityDbContext database)
                         category.Kind,
                         category.Comment,
                         category.Version,
+                        category.TrackingStoppedAt,
                         Subcategories = database.Subcategories.Where(subcategory => subcategory.CategoryId == category.Id)
                             .OrderBy(subcategory => subcategory.Name).ThenBy(subcategory => subcategory.Id)
                             .Select(subcategory => new
@@ -43,8 +44,10 @@ public sealed class EfProfileCategoriesReader(AccountIdentityDbContext database)
             .SingleOrDefaultAsync(cancellationToken);
         return profile is null ? null : new ProfileCategories(profile.Id, profile.Role,
             profile.Categories.Select(category => new ProfileCategory(category.Id, category.Name, category.Kind,
-                category.Comment, category.Version, category.Subcategories.Select(subcategory =>
+                category.Comment, category.Version, category.TrackingStoppedAt, category.Subcategories.Select(subcategory =>
                     new ProfileSubcategoryDetails(subcategory.Id, subcategory.CategoryId, subcategory.Name,
-                        subcategory.Comment, subcategory.TrackingStoppedAt, subcategory.Version)).ToArray())).ToArray());
+                        subcategory.Comment, subcategory.TrackingStoppedAt,
+                        category.TrackingStoppedAt is null && subcategory.TrackingStoppedAt is null,
+                        subcategory.Version)).ToArray())).ToArray());
     }
 }

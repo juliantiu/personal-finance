@@ -38,4 +38,22 @@ public sealed class ProfileCategoryTests
         Assert.Throws<ArgumentException>(() => ProfileCategory.CreateOrdinary(Guid.NewGuid(), new string('x', 101), null));
         Assert.Throws<ArgumentException>(() => ProfileCategory.CreateOrdinary(Guid.NewGuid(), "Food", new string('x', 2001)));
     }
+
+    [Fact]
+    public void Only_an_ordinary_category_can_stop_tracking_and_its_first_timestamp_is_retained()
+    {
+        var profileId = Guid.NewGuid();
+        var ordinary = ProfileCategory.CreateOrdinary(profileId, "Food", null);
+        var stoppedAt = new DateTimeOffset(2026, 11, 12, 14, 0, 0, TimeSpan.FromHours(1));
+
+        var stopped = ordinary.StopTracking(stoppedAt);
+        var repeated = stopped.StopTracking(stoppedAt.AddHours(1));
+
+        Assert.Equal(ordinary.Id, stopped.Id);
+        Assert.Equal("ordinary", stopped.Kind);
+        Assert.Equal(stoppedAt, stopped.TrackingStoppedAt);
+        Assert.Equal(stoppedAt, repeated.TrackingStoppedAt);
+        var systemCategory = ProfileCategory.Restore(Guid.NewGuid(), profileId, "Renamed income", null, "income");
+        Assert.Throws<InvalidOperationException>(() => systemCategory.StopTracking(stoppedAt));
+    }
 }

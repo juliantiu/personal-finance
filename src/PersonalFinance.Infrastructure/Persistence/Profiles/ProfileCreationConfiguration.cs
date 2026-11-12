@@ -16,11 +16,16 @@ internal static class ProfileCreationConfiguration
         });
         builder.Entity<CategoryRecord>(category =>
         {
-            category.ToTable("Categories", table => table.HasCheckConstraint("CK_Categories_Kind", "[Kind] IN ('income', 'savings', 'debt', 'ordinary')"));
+            category.ToTable("Categories", table =>
+            {
+                table.HasCheckConstraint("CK_Categories_Kind", "[Kind] IN ('income', 'savings', 'debt', 'ordinary')");
+                table.HasCheckConstraint("CK_Categories_Tracking", "[Kind] = 'ordinary' OR [TrackingStoppedAt] IS NULL");
+            });
             category.HasKey(value => value.Id);
             category.Property(value => value.Name).HasMaxLength(100).IsRequired();
             category.Property(value => value.Comment).HasMaxLength(2000);
             category.Property(value => value.Kind).HasMaxLength(8).IsRequired();
+            category.Property(value => value.TrackingStoppedAt).HasColumnType("datetimeoffset");
             category.Property(value => value.Version).IsRowVersion();
             category.HasIndex(value => new { value.ProfileId, value.Kind }).IsUnique().HasFilter("[Kind] IN ('income', 'savings', 'debt')");
             category.HasOne<BudgetProfileRecord>().WithMany().HasForeignKey(value => value.ProfileId).OnDelete(DeleteBehavior.Cascade);

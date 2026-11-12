@@ -1,3 +1,4 @@
+using System.Data;
 using Microsoft.EntityFrameworkCore;
 using PersonalFinance.Application.Profiles;
 using PersonalFinance.Domain.Profiles;
@@ -13,10 +14,12 @@ public sealed class EfProfileSubcategoryWriter(AccountIdentityDbContext database
         DomainProfileSubcategory subcategory, CancellationToken cancellationToken)
     {
         if (subcategory.CategoryId != categoryId) return null;
+        await using var transaction = await database.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        await EfProfileCategoryWriteLock.AcquireAsync(database, categoryId, cancellationToken);
         if (!await CanEditAsync(accountId, profileId, cancellationToken)) return null;
-        var category = await database.Categories.AsNoTracking().SingleOrDefaultAsync(value =>
+        var category = await database.Categories.SingleOrDefaultAsync(value =>
             value.ProfileId == profileId && value.Id == categoryId, cancellationToken);
-        if (category is null) return null;
+        if (category is null || category.TrackingStoppedAt is not null) return null;
 
         database.Subcategories.Add(new SubcategoryRecord
         {
@@ -29,16 +32,22 @@ public sealed class EfProfileSubcategoryWriter(AccountIdentityDbContext database
             database.SavingsPlans.Add(new SavingsPlanRecord { SubcategoryId = subcategory.Id });
 
         await database.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
         return subcategory.Id;
     }
 
     public async Task<UpdateProfileSubcategoryResult> UpdateAsync(Guid accountId, Guid profileId, Guid categoryId,
         Guid subcategoryId, ProfileSubcategoryMetadata metadata, byte[] expectedVersion, CancellationToken cancellationToken)
     {
+        await using var transaction = await database.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+        await EfProfileCategoryWriteLock.AcquireAsync(database, categoryId, cancellationToken);
         if (!await CanEditAsync(accountId, profileId, cancellationToken)) return UpdateProfileSubcategoryResult.NotFound;
+        var category = await database.Categories.SingleOrDefaultAsync(value =>
+            value.ProfileId == profileId && value.Id == categoryId, cancellationToken);
+        if (category is null || category.TrackingStoppedAt is not null) return UpdateProfileSubcategoryResult.NotFound;
         var record = await database.Subcategories.SingleOrDefaultAsync(value =>
             value.Id == subcategoryId && value.CategoryId == categoryId &&
-            database.Categories.Any(category => category.Id == value.CategoryId && category.ProfileId == profileId), cancellationToken);
+            value.CategoryId == category.Id, cancellationToken);
         if (record is null) return UpdateProfileSubcategoryResult.NotFound;
         if (record.TrackingStoppedAt is not null) return UpdateProfileSubcategoryResult.NotFound;
         if (!record.Version.SequenceEqual(expectedVersion)) return UpdateProfileSubcategoryResult.Conflict;
@@ -48,6 +57,7 @@ public sealed class EfProfileSubcategoryWriter(AccountIdentityDbContext database
         try
         {
             await database.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
             return UpdateProfileSubcategoryResult.Updated;
         }
         catch (DbUpdateConcurrencyException)
