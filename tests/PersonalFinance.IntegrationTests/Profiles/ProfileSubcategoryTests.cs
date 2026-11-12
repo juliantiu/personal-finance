@@ -55,6 +55,10 @@ public sealed class ProfileSubcategoryTests
         Assert.Equal(HttpStatusCode.BadRequest, noProof.StatusCode);
         Assert.True(noProof.Headers.CacheControl?.NoStore);
 
+        using var noProofDelete = await DeleteSubcategoryAsync(noProofClient, profileId, categories[0].Id, Guid.NewGuid(), "c3RhbGU=");
+        Assert.Equal(HttpStatusCode.BadRequest, noProofDelete.StatusCode);
+        Assert.True(noProofDelete.Headers.CacheControl?.NoStore);
+
         var childIds = new Dictionary<Guid, Guid>();
         foreach (var category in categories.Where(category => category.ProfileId == profileId))
         {
@@ -142,6 +146,63 @@ public sealed class ProfileSubcategoryTests
         var savedChild = Assert.Single(Assert.Single(after!.Categories, category => category.Kind == "savings").Subcategories);
         Assert.Equal("Holiday", savedChild.Name);
         Assert.Equal("planned", savedChild.Comment);
+
+        var activeForViewer = Assert.Single(Assert.Single(after.Categories, category => category.Kind == "income").Subcategories,
+            value => value.Id == childIds[categories[0].Id]);
+        using var viewerDelete = await DeleteSubcategoryAsync(viewerClient, profileId, categories[0].Id,
+            activeForViewer.Id, activeForViewer.Version);
+        Assert.Equal(HttpStatusCode.NotFound, viewerDelete.StatusCode);
+        using var foreignProfileDelete = await DeleteSubcategoryAsync(ownerClient, otherProfileId, categories[0].Id,
+            activeForViewer.Id, activeForViewer.Version);
+        Assert.Equal(HttpStatusCode.NotFound, foreignProfileDelete.StatusCode);
+
+        foreach (var category in categories.Where(category => category.ProfileId == profileId))
+        {
+            var current = await editorClient.GetFromJsonAsync<CategoriesResponse>(
+                $"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+            var child = Assert.Single(Assert.Single(current!.Categories, value => value.Id == category.Id).Subcategories,
+                value => value.Id == childIds[category.Id]);
+            var writerClient = category.Kind == "ordinary" ? ownerClient : editorClient;
+            using var stopped = await DeleteSubcategoryAsync(writerClient, profileId, category.Id, child.Id, child.Version);
+            Assert.Equal(HttpStatusCode.OK, stopped.StatusCode);
+            Assert.True(stopped.Headers.CacheControl?.NoStore);
+
+            var retained = await ownerClient.GetFromJsonAsync<CategoriesResponse>(
+                $"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+            var retainedChild = Assert.Single(Assert.Single(retained!.Categories, value => value.Id == category.Id).Subcategories,
+                value => value.Id == child.Id);
+            Assert.Equal(child.Name, retainedChild.Name);
+            Assert.Equal(child.Comment, retainedChild.Comment);
+            Assert.Equal(category.Id, retainedChild.CategoryId);
+            var firstTimestamp = Assert.IsType<DateTimeOffset>(retainedChild.TrackingStoppedAt);
+
+            using var staleDelete = await DeleteSubcategoryAsync(editorClient, profileId, category.Id, child.Id, child.Version);
+            Assert.Equal(HttpStatusCode.Conflict, staleDelete.StatusCode);
+            var currentVersionChild = await editorClient.GetFromJsonAsync<CategoriesResponse>(
+                $"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+            var currentDeleted = Assert.Single(Assert.Single(currentVersionChild!.Categories, value => value.Id == category.Id).Subcategories,
+                value => value.Id == child.Id);
+            using var repeatedDelete = await DeleteSubcategoryAsync(editorClient, profileId, category.Id, child.Id, currentDeleted.Version);
+            Assert.Equal(HttpStatusCode.OK, repeatedDelete.StatusCode);
+
+            var versionAfterRepeat = await ownerClient.GetFromJsonAsync<CategoriesResponse>(
+                $"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+            var repeated = Assert.Single(Assert.Single(versionAfterRepeat!.Categories, value => value.Id == category.Id).Subcategories,
+                value => value.Id == child.Id);
+            Assert.Equal(firstTimestamp, repeated.TrackingStoppedAt);
+            using var metadataEdit = await editorClient.PutAsJsonAsync(
+                $"/api/budget-profiles/{profileId}/categories/{category.Id}/subcategories/{child.Id}",
+                new { name = "Forbidden edit", comment = "still retained", version = repeated.Version }, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NotFound, metadataEdit.StatusCode);
+        }
+
+        await host.WithDatabaseAsync(async db =>
+        {
+            Assert.Equal(5, await db.Subcategories.CountAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(4, await db.Subcategories.CountAsync(value => value.TrackingStoppedAt != null, TestContext.Current.CancellationToken));
+            Assert.Equal(1, await db.SavingsPlans.CountAsync(TestContext.Current.CancellationToken));
+            return true;
+        });
     }
 
     [Fact]
@@ -186,22 +247,68 @@ public sealed class ProfileSubcategoryTests
     }
 
     [Fact]
+    public async Task Failed_tracking_stop_is_not_confirmed_and_preserves_active_state()
+    {
+        await using var host = new AccountTestHost();
+        await host.MigrateAsync();
+        var owner = await AddAccount(host);
+        var profileId = Guid.NewGuid();
+        var categoryId = Guid.NewGuid();
+        var subcategoryId = Guid.NewGuid();
+        await host.WithDatabaseAsync(async db =>
+        {
+            db.BudgetProfiles.Add(new BudgetProfileRecord { Id = profileId, OwnerAccountId = owner, Name = "Home", MainCurrencyCode = "GBP" });
+            db.Categories.Add(new CategoryRecord { Id = categoryId, ProfileId = profileId, Name = "Other", Kind = "ordinary" });
+            db.Subcategories.Add(new SubcategoryRecord { Id = subcategoryId, CategoryId = categoryId, Name = "Retained" });
+            return await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        });
+        using var client = await SignedInClient(host, owner);
+        var categories = await client.GetFromJsonAsync<CategoriesResponse>(
+            $"/api/budget-profiles/{profileId}/categories", TestContext.Current.CancellationToken);
+        var child = Assert.Single(Assert.Single(categories!.Categories).Subcategories);
+        await host.WithDatabaseAsync(async db =>
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                "CREATE TRIGGER [FailTrackingStop] ON [Subcategories] AFTER UPDATE AS BEGIN IF EXISTS (SELECT 1 FROM inserted i JOIN deleted d ON i.Id = d.Id WHERE i.TrackingStoppedAt IS NOT NULL AND d.TrackingStoppedAt IS NULL) THROW 51000, 'Synthetic tracking-stop failure', 1; END;",
+                TestContext.Current.CancellationToken);
+            return true;
+        });
+
+        using var response = await DeleteSubcategoryAsync(client, profileId, categoryId, subcategoryId, child.Version);
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        await host.WithDatabaseAsync(async db =>
+        {
+            Assert.Null((await db.Subcategories.SingleAsync(value => value.Id == subcategoryId, TestContext.Current.CancellationToken)).TrackingStoppedAt);
+            await db.Database.ExecuteSqlRawAsync("DROP TRIGGER [FailTrackingStop];", TestContext.Current.CancellationToken);
+            return true;
+        });
+    }
+
+    [Fact]
     public async Task Subcategory_migration_preserves_existing_profiles_and_categories()
     {
         await using var host = new AccountTestHost();
         await host.WithDatabaseAsync(async db =>
         {
-            await db.GetService<IMigrator>().MigrateAsync("20261110180556_AddCategoryMetadata", TestContext.Current.CancellationToken);
+            await db.GetService<IMigrator>().MigrateAsync("20261111045436_AddProfileSubcategories", TestContext.Current.CancellationToken);
             return true;
         });
         var owner = await AddAccount(host);
         var profileId = Guid.NewGuid();
         var categoryId = Guid.NewGuid();
+        var existingChildId = Guid.NewGuid();
         await host.WithDatabaseAsync(async db =>
         {
             db.BudgetProfiles.Add(new BudgetProfileRecord { Id = profileId, OwnerAccountId = owner, Name = "Existing", MainCurrencyCode = "GBP" });
             db.Categories.Add(new CategoryRecord { Id = categoryId, ProfileId = profileId, Name = "Savings", Kind = "savings" });
-            return await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO [Subcategories] ([Id], [CategoryId], [Name], [Comment]) VALUES ({existingChildId}, {categoryId}, {"Existing child"}, {"Retained comment"});",
+                TestContext.Current.CancellationToken);
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO [SavingsPlans] ([SubcategoryId]) VALUES ({existingChildId});",
+                TestContext.Current.CancellationToken);
+            return true;
         });
 
         await host.MigrateAsync();
@@ -211,8 +318,11 @@ public sealed class ProfileSubcategoryTests
             Assert.Equal("Existing", (await db.BudgetProfiles.SingleAsync(value => value.Id == profileId, TestContext.Current.CancellationToken)).Name);
             var category = await db.Categories.SingleAsync(value => value.Id == categoryId, TestContext.Current.CancellationToken);
             Assert.Equal("Savings", category.Name);
-            Assert.Empty(await db.Subcategories.ToArrayAsync(TestContext.Current.CancellationToken));
-            Assert.Empty(await db.SavingsPlans.ToArrayAsync(TestContext.Current.CancellationToken));
+            var child = await db.Subcategories.SingleAsync(value => value.CategoryId == categoryId, TestContext.Current.CancellationToken);
+            Assert.Equal("Existing child", child.Name);
+            Assert.Equal("Retained comment", child.Comment);
+            Assert.Null(child.TrackingStoppedAt);
+            Assert.Equal(child.Id, (await db.SavingsPlans.SingleAsync(TestContext.Current.CancellationToken)).SubcategoryId);
             return true;
         });
     }
@@ -244,9 +354,21 @@ public sealed class ProfileSubcategoryTests
         return client;
     }
 
+    private static Task<HttpResponseMessage> DeleteSubcategoryAsync(HttpClient client, Guid profileId, Guid categoryId,
+        Guid subcategoryId, string version, CancellationToken cancellationToken = default)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete,
+            $"/api/budget-profiles/{profileId}/categories/{categoryId}/subcategories/{subcategoryId}")
+        {
+            Content = JsonContent.Create(new { version })
+        };
+        return client.SendAsync(request, cancellationToken == default ? TestContext.Current.CancellationToken : cancellationToken);
+    }
+
     private sealed record AntiforgeryToken(string RequestToken);
     private sealed record CreatedResponse(Guid Id);
     private sealed record CategoriesResponse(Guid ProfileId, string Role, IReadOnlyList<CategoryResponse> Categories);
     private sealed record CategoryResponse(Guid Id, string Name, string Kind, string? Comment, string Version, IReadOnlyList<SubcategoryResponse> Subcategories);
-    private sealed record SubcategoryResponse(Guid Id, Guid CategoryId, string Name, string? Comment, string Version);
+    private sealed record SubcategoryResponse(Guid Id, Guid CategoryId, string Name, string? Comment,
+        DateTimeOffset? TrackingStoppedAt, string Version);
 }

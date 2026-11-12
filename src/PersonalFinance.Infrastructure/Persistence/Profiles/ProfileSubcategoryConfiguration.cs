@@ -12,6 +12,7 @@ internal static class ProfileSubcategoryConfiguration
             subcategory.HasKey(value => value.Id);
             subcategory.Property(value => value.Name).HasMaxLength(100).IsRequired();
             subcategory.Property(value => value.Comment).HasMaxLength(2000);
+            subcategory.Property(value => value.TrackingStoppedAt).HasColumnType("datetimeoffset");
             subcategory.Property(value => value.Version).IsRowVersion();
             subcategory.HasOne<CategoryRecord>().WithMany().HasForeignKey(value => value.CategoryId).OnDelete(DeleteBehavior.Cascade);
         });

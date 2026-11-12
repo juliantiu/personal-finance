@@ -2,7 +2,8 @@ using Mediator;
 
 namespace PersonalFinance.Application.Profiles;
 
-public sealed record ProfileSubcategoryDetails(Guid Id, Guid CategoryId, string Name, string? Comment, byte[] Version);
+public sealed record ProfileSubcategoryDetails(Guid Id, Guid CategoryId, string Name, string? Comment,
+    DateTimeOffset? TrackingStoppedAt, byte[] Version);
 
 public sealed record ProfileCategory(Guid Id, string Name, string Kind, string? Comment, byte[] Version,
     IReadOnlyList<ProfileSubcategoryDetails> Subcategories);

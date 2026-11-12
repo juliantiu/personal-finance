@@ -219,6 +219,27 @@ public sealed class ProfileCategoriesPageTests
     }
 
     [Fact]
+    public async Task Writer_stops_tracking_a_subcategory_and_sees_its_retained_status_after_reload()
+    {
+        var id = Guid.NewGuid();
+        var handler = new SubcategoryLifecycleHandler(id);
+        await using var context = CreateContext(handler, id);
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("Groceries", page.Markup));
+
+        var child = page.FindAll("ul[aria-label='Subcategories for Income'] li").Single();
+        child.QuerySelectorAll("button").Single(button => button.TextContent.Contains("Stop tracking")).Click();
+
+        page.WaitForAssertion(() => Assert.Contains("Tracking stopped on 2026-11-11 12:30 UTC", page.Markup));
+        Assert.Single(handler.Writes);
+        Assert.Contains("version", handler.Writes.Single());
+        Assert.Contains("X-CSRF-TOKEN", handler.Headers);
+        child = page.FindAll("ul[aria-label='Subcategories for Income'] li").Single();
+        Assert.Empty(child.QuerySelectorAll("input, textarea, button"));
+        Assert.Contains("Comment: Weekly shop", child.TextContent);
+    }
+
+    [Fact]
     public async Task Writer_can_create_a_subcategory_and_reload_it_from_the_server()
     {
         var id = Guid.NewGuid();
@@ -409,7 +430,7 @@ public sealed class ProfileCategoriesPageTests
     };
 
     private static HttpResponseMessage CategoriesWithSubcategory(Guid id, string role = "owner", string childName = "Groceries",
-        string childVersion = "AQID", string? childComment = "Weekly shop") => new(HttpStatusCode.OK)
+        string childVersion = "AQID", string? childComment = "Weekly shop", string? trackingStoppedAt = null) => new(HttpStatusCode.OK)
     {
         Content = JsonContent.Create(new
         {
@@ -420,7 +441,7 @@ public sealed class ProfileCategoriesPageTests
                 new
                 {
                     id = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = "Income", kind = "income", comment = (string?)null, version = "AQIE",
-                    subcategories = (IReadOnlyList<object>)new object[] { new { id = Guid.Parse("44444444-4444-4444-4444-444444444444"), categoryId = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = childName, comment = childComment, version = childVersion } }
+                    subcategories = (IReadOnlyList<object>)new object[] { new { id = Guid.Parse("44444444-4444-4444-4444-444444444444"), categoryId = Guid.Parse("11111111-1111-1111-1111-111111111111"), name = childName, comment = childComment, trackingStoppedAt, version = childVersion } }
                 },
                 new { id = Guid.Parse("22222222-2222-2222-2222-222222222222"), name = "Savings", kind = "savings", comment = (string?)null, version = "AQIF", subcategories = (IReadOnlyList<object>)Array.Empty<object>() },
                 new { id = Guid.Parse("33333333-3333-3333-3333-333333333333"), name = "Debt", kind = "debt", comment = (string?)null, version = "AQIG", subcategories = (IReadOnlyList<object>)Array.Empty<object>() }
@@ -482,6 +503,31 @@ public sealed class ProfileCategoriesPageTests
                 _savedName = payload.RootElement.GetProperty("name").GetString();
             }
             return new HttpResponseMessage(_writes == 1 ? HttpStatusCode.Conflict : HttpStatusCode.OK);
+        }
+    }
+
+    private sealed class SubcategoryLifecycleHandler(Guid profileId) : HttpMessageHandler
+    {
+        private bool _stopped;
+        public List<string> Writes { get; } = [];
+        public List<string> Headers { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/auth/session")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { authenticated = true, email = "person@example.test" }) };
+            if (request.RequestUri.AbsolutePath == "/api/auth/antiforgery")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { requestToken = "synthetic-csrf" }) };
+            if (request.Method == HttpMethod.Get)
+            {
+                var response = CategoriesWithSubcategory(profileId, trackingStoppedAt: _stopped ? "2026-11-11T12:30:00+00:00" : null,
+                    childVersion: _stopped ? "BAUG" : "AQID");
+                return response;
+            }
+            Headers.AddRange(request.Headers.Select(header => header.Key));
+            Writes.Add(await request.Content!.ReadAsStringAsync(cancellationToken));
+            _stopped = true;
+            return new HttpResponseMessage(HttpStatusCode.OK);
         }
     }
 }

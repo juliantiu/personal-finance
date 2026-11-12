@@ -49,12 +49,17 @@ public sealed class UpdateProfileSubcategoryValidator : AbstractValidator<Update
 
 public enum UpdateProfileSubcategoryResult { Updated, NotFound, Conflict }
 
+public enum StopTrackingProfileSubcategoryResult { Stopped, NotFound, Conflict }
+
 public interface IProfileSubcategoryWriter
 {
     Task<Guid?> CreateAsync(Guid accountId, Guid profileId, Guid categoryId, DomainProfileSubcategory subcategory, CancellationToken cancellationToken);
 
     Task<UpdateProfileSubcategoryResult> UpdateAsync(Guid accountId, Guid profileId, Guid categoryId, Guid subcategoryId,
         ProfileSubcategoryMetadata metadata, byte[] expectedVersion, CancellationToken cancellationToken);
+
+    Task<StopTrackingProfileSubcategoryResult> StopTrackingAsync(Guid accountId, Guid profileId, Guid categoryId,
+        Guid subcategoryId, byte[] expectedVersion, CancellationToken cancellationToken);
 }
 
 public sealed class CreateProfileSubcategoryHandler(ICurrentAccount currentAccount, IProfileSubcategoryWriter writer)
@@ -80,5 +85,39 @@ public sealed class UpdateProfileSubcategoryHandler(ICurrentAccount currentAccou
         var version = Convert.FromBase64String(command.Version!);
         return await writer.UpdateAsync(accountId, command.ProfileId, command.CategoryId, command.SubcategoryId,
             metadata, version, cancellationToken);
+    }
+}
+
+public sealed record StopTrackingProfileSubcategoryCommand(Guid ProfileId, Guid CategoryId, Guid SubcategoryId,
+    string? Version) : ICommand<StopTrackingProfileSubcategoryResult>;
+
+public sealed class StopTrackingProfileSubcategoryValidator : AbstractValidator<StopTrackingProfileSubcategoryCommand>
+{
+    public StopTrackingProfileSubcategoryValidator()
+    {
+        RuleFor(command => command.ProfileId).NotEqual(Guid.Empty);
+        RuleFor(command => command.CategoryId).NotEqual(Guid.Empty);
+        RuleFor(command => command.SubcategoryId).NotEqual(Guid.Empty);
+        RuleFor(command => command.Version).Must(IsVersion).WithMessage("Reload the subcategory before deleting it.");
+    }
+
+    private static bool IsVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version)) return false;
+        try { return Convert.FromBase64String(version).Length > 0; }
+        catch (FormatException) { return false; }
+    }
+}
+
+public sealed class StopTrackingProfileSubcategoryHandler(ICurrentAccount currentAccount, IProfileSubcategoryWriter writer)
+    : ICommandHandler<StopTrackingProfileSubcategoryCommand, StopTrackingProfileSubcategoryResult>
+{
+    public async ValueTask<StopTrackingProfileSubcategoryResult> Handle(StopTrackingProfileSubcategoryCommand command,
+        CancellationToken cancellationToken)
+    {
+        var accountId = await currentAccount.GetAccountIdAsync(cancellationToken)
+            ?? throw new UnauthenticatedAccountException();
+        return await writer.StopTrackingAsync(accountId, command.ProfileId, command.CategoryId, command.SubcategoryId,
+            Convert.FromBase64String(command.Version!), cancellationToken);
     }
 }

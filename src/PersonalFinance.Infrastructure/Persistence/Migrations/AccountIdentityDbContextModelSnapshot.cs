@@ -616,6 +616,9 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<DateTimeOffset?>("TrackingStoppedAt")
+                        .HasColumnType("datetimeoffset");
+
                     b.Property<byte[]>("Version")
                         .IsConcurrencyToken()
                         .IsRequired()

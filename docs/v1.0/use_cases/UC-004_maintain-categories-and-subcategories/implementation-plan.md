@@ -1,6 +1,6 @@
 # UC-004 — Maintain categories and subcategories — Implementation plan
 
-Status: **Phases 1–3 approved, completed, and verified by 11 November 2026. Phases 4–7 are not approved or complete. Decisions below remain unresolved for their affected phases.**
+Status: **Phases 1–4 approved, completed, and verified by 12 November 2026. Phases 5–7 are not approved or complete. Decisions below remain unresolved for their affected phases.**
 
 ## Sources and current baseline
 
@@ -39,9 +39,9 @@ Recommendations here are proposals for discussion, not accepted requirements or 
 | --- | --- | --- |
 | Names | **Resolved by the user for Phases 2–3:** require a nonblank name after trimming, maximum 100 characters after trimming, and allow duplicate display names identified by record ID. | Applied in Phases 2–3 |
 | Comments | **Resolved by the user for Phases 2–3:** optional plain text, maximum 2,000 characters, normalize empty/whitespace-only input to absent, and preserve meaningful interior line breaks. | Applied in Phases 2–3 |
-| Concurrent changes | **Resolved for Phases 2–3:** optimistic concurrency per edited category or subcategory record; a stale edit returns a conflict and preserves the draft until the user reloads the current version. Parent-retirement/child-write interaction and the concurrency boundary for later deletion phases remain open. | Phases 2–3 complete; revisit Phases 4–5 |
-| Editing retained items | May writers rename or edit comments on explicitly deleted items and children blocked by a deleted parent? Historical financial correction access is confirmed; post-deletion metadata editing is not. Suggested: permit metadata corrections without clearing deletion facts, while rejecting new children under a deleted parent. | Phases 4–5 |
-| Repeated deletion | What should happen when a retained item is deleted again, or an individually active child is explicitly deleted after its parent? Suggested: repeated deletion preserves the original timestamp; a first explicit child deletion records its independent fact even when the parent already blocks tracking. Resolve how this interacts with a stale version. | Phases 4–5 |
+| Concurrent changes | **Resolved for Phases 2–4:** optimistic concurrency per edited category or subcategory record; a stale edit or Phase 4 delete returns a conflict and makes no change. Phase 4 deletion requires the currently displayed subcategory row version. Parent-retirement/child-write interaction remains open. | Phases 2–4 complete; revisit Phase 5 |
+| Editing retained items | **Resolved for Phase 4:** owners/editors cannot change name or comment after an individual subcategory has stopped tracking. Whether a child blocked by a deleted parent can be edited remains open for Phase 5. | Phase 4 complete; Phase 5 |
+| Repeated deletion | **Resolved for Phase 4:** repeating deletion with the current row version succeeds without changing the original timestamp. A stale version conflicts without a change. The policy for an explicit child deletion after its parent has stopped tracking remains open for Phase 5. | Phase 4 complete; Phase 5 |
 | Savings setup boundary | **Resolved for Phase 3:** create an empty SavingsPlan atomically with each Savings subcategory, with goal and reset note unset. Goal/reset-note editing and balances stay in UC-014. The migration uses EF's SQL Server default decimal mapping for the nullable goal column; UC-014 must resolve goal precision before accepting values. | Phase 3 complete |
 
 Reparenting and restoration remain excluded, so they do not need new product rules for this plan. Goal precision, financial timestamps, correction deletion, and report policies must be resolved in their owning use cases before the historical verification phase depends on them.
@@ -119,12 +119,14 @@ Within each phase: resolve its decisions, present the concrete phase plan for ap
 
 ### Phase 4 — Stop tracking an individual subcategory
 
-**Status:** Not started; gated by retained-item metadata, repeated deletion, and concurrency decisions.
+**Status:** Complete — approved, implemented, and verified 12 November 2026. See [Phase 4 verification](verification-phase-4.md).
 
 - Add the child's independent timezone-aware tracking-stopped fact and its Domain operation, persistence, command/API, and UI action. Support deletion beneath each category kind.
 - Retain the child, its parent relationship, name, comments, and any required settings. Show its deleted status when reviewing items; do not make it disappear through a global read filter.
 - Enforce the agreed repeated-deletion and post-deletion metadata rules. Deletion must not imply restoration or clear prior deletion facts. Reject stale operations according to the agreed version policy.
 - Introduce only the active-versus-individually-deleted eligibility behavior needed here. Its later consumption by budget selection is tracked in Phase 7.
+
+**Completion evidence:** Added independent `DateTimeOffset` tracking-stop state, an optimistic-concurrency delete command/API, and a writer-only page action. Deleted subcategories remain in reads with their name, comment, parent, and SavingsPlan; metadata updates are rejected. A current-version repeat is idempotent and preserves the original timestamp; stale deletes conflict. Focused LocalDB tests cover all four parent kinds, access, antiforgery, profile scoping, migration preservation, retained data, and repeated/stale requests. Component and Chrome tests verify status display and reload. See [Phase 4 verification](verification-phase-4.md) for red/green and regression results.
 
 **Red/green evidence:** Cover each parent kind; retained identity/data; independent timestamp; no parent/other-child changes; repeat deletion and stale version; authorized versus rejected writes; antiforgery; and persistence failure. Verify the visible retained status, metadata policy, and reload behavior through components and a focused browser workflow.
 

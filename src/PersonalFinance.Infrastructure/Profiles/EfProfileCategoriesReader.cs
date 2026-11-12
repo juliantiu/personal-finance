@@ -35,6 +35,7 @@ public sealed class EfProfileCategoriesReader(AccountIdentityDbContext database)
                                 subcategory.CategoryId,
                                 subcategory.Name,
                                 subcategory.Comment,
+                                subcategory.TrackingStoppedAt,
                                 subcategory.Version
                             }).ToList()
                     }).ToList()
@@ -44,6 +45,6 @@ public sealed class EfProfileCategoriesReader(AccountIdentityDbContext database)
             profile.Categories.Select(category => new ProfileCategory(category.Id, category.Name, category.Kind,
                 category.Comment, category.Version, category.Subcategories.Select(subcategory =>
                     new ProfileSubcategoryDetails(subcategory.Id, subcategory.CategoryId, subcategory.Name,
-                        subcategory.Comment, subcategory.Version)).ToArray())).ToArray());
+                        subcategory.Comment, subcategory.TrackingStoppedAt, subcategory.Version)).ToArray())).ToArray());
     }
 }

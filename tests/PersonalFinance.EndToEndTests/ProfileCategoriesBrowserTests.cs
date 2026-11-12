@@ -12,6 +12,52 @@ namespace PersonalFinance.EndToEndTests;
 public sealed class ProfileCategoriesBrowserTests
 {
     [Fact]
+    public async Task Writer_can_stop_tracking_a_subcategory_and_review_it_after_reload()
+    {
+        await using var browser = await BrowserSession.StartAsync();
+        Guid accountId;
+        using (var scope = browser.Api.Services.CreateScope())
+        {
+            var manager = scope.ServiceProvider.GetRequiredService<UserManager<AccountIdentityUser>>();
+            var account = new AccountIdentityUser { UserName = "subcategory-delete@example.test", Email = "subcategory-delete@example.test", EmailConfirmed = true };
+            Assert.True((await manager.CreateAsync(account, "abcdefghijkl")).Succeeded);
+            accountId = account.Id;
+        }
+        var profileId = Guid.NewGuid();
+        var categoryId = Guid.NewGuid();
+        var subcategoryId = Guid.NewGuid();
+        await browser.Api.WithDatabaseAsync(async db =>
+        {
+            db.BudgetProfiles.Add(new BudgetProfileRecord { Id = profileId, OwnerAccountId = accountId, Name = "Tracking status", MainCurrencyCode = "GBP" });
+            db.Categories.Add(new CategoryRecord { Id = categoryId, ProfileId = profileId, Name = "Income", Kind = "income" });
+            db.Subcategories.Add(new SubcategoryRecord { Id = subcategoryId, CategoryId = categoryId, Name = "Salary", Comment = "Monthly pay" });
+            return await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+        });
+
+        var page = browser.Page;
+        var categoriesUrl = browser.ClientUrl + $"/budget-profiles/{profileId}/categories";
+        await page.GotoAsync(browser.ClientUrl + $"/login?returnUrl=%2Fbudget-profiles%2F{profileId}%2Fcategories");
+        await page.GetByLabel("Email address", new() { Exact = true }).FillAsync("subcategory-delete@example.test");
+        await page.GetByLabel("Password", new() { Exact = true }).FillAsync("abcdefghijkl");
+        await page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync();
+        await Expect(page).ToHaveURLAsync(categoriesUrl);
+
+        var salary = page.GetByRole(AriaRole.List, new() { Name = "Subcategories for Income", Exact = true }).GetByRole(AriaRole.Listitem).First;
+        var stopResponse = page.WaitForResponseAsync(response => response.Url.Contains($"/subcategories/{subcategoryId}", StringComparison.Ordinal)
+            && response.Request.Method == "DELETE");
+        await salary.GetByRole(AriaRole.Button, new() { Name = "Stop tracking", Exact = true }).ClickAsync();
+        Assert.Equal(200, (int)(await stopResponse).Status);
+        await Expect(salary).ToContainTextAsync("Tracking stopped on");
+        await Expect(salary).ToContainTextAsync("Monthly pay");
+        await page.ReloadAsync();
+        salary = page.GetByRole(AriaRole.List, new() { Name = "Subcategories for Income", Exact = true }).GetByRole(AriaRole.Listitem).First;
+        await Expect(salary).ToContainTextAsync("Salary");
+        await Expect(salary).ToContainTextAsync("Tracking stopped on");
+        await Expect(salary.GetByRole(AriaRole.Button, new() { Name = "Stop tracking", Exact = true })).ToHaveCountAsync(0);
+        Assert.Empty(browser.PageErrors);
+    }
+
+    [Fact]
     public async Task Categories_support_sign_in_deep_links_profile_navigation_reload_retry_and_revoked_access()
     {
         await using var browser = await BrowserSession.StartAsync();
@@ -69,7 +115,11 @@ public sealed class ProfileCategoriesBrowserTests
         await page.GetByLabel("Category name", new() { Exact = true }).First.FillAsync("Wages revised");
         await page.GetByLabel("Comment (optional)", new() { Exact = true }).First.FillAsync("duplicate labels are allowed");
         await page.GetByRole(AriaRole.Button, new() { Name = "Add category", Exact = true }).ClickAsync();
-        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(4);
+        try { await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(4); }
+        catch (PlaywrightException exception)
+        {
+            throw new InvalidOperationException($"Category create did not refresh. API: {string.Join(" | ", browser.ApiResponses)}. Alerts: {string.Join(" | ", await page.GetByRole(AriaRole.Alert).AllTextContentsAsync())}. Console: {string.Join(" | ", browser.ConsoleErrors)}", exception);
+        }
         var ordinaryItem = categories.GetByRole(AriaRole.Listitem).Filter(new() { HasText = "Category type: Ordinary" });
         await Expect(incomeName).ToHaveValueAsync("Wages revised");
         await Expect(ordinaryItem.GetByLabel("Category name", new() { Exact = true })).ToHaveValueAsync("Wages revised");
@@ -98,6 +148,19 @@ public sealed class ProfileCategoriesBrowserTests
         await Expect(incomeItem.GetByLabel("Category name", new() { Exact = true })).ToHaveValueAsync("Wages revised");
         await Expect(savingsChildren.GetByRole(AriaRole.Listitem).First.GetByLabel("Subcategory name", new() { Exact = true }))
             .ToHaveValueAsync("Travel fund");
+
+        emergencyFund = savingsChildren.GetByRole(AriaRole.Listitem).First;
+        var stopTrackingResponse = page.WaitForResponseAsync(response =>
+            response.Url.Contains("/subcategories/", StringComparison.Ordinal) && response.Request.Method == "DELETE");
+        await emergencyFund.GetByRole(AriaRole.Button, new() { Name = "Stop tracking", Exact = true }).ClickAsync();
+        Assert.Equal(200, (int)(await stopTrackingResponse).Status);
+        await Expect(emergencyFund).ToContainTextAsync("Tracking stopped on");
+        await Expect(emergencyFund).ToContainTextAsync("Unexpected costs");
+        await Expect(emergencyFund.GetByLabel("Subcategory name", new() { Exact = true })).ToHaveCountAsync(0);
+        await page.ReloadAsync();
+        emergencyFund = savingsChildren.GetByRole(AriaRole.Listitem).First;
+        await Expect(emergencyFund).ToContainTextAsync("Tracking stopped on");
+        await Expect(emergencyFund).ToContainTextAsync("Travel fund");
 
         await page.RouteAsync("**/api/budget-profiles/*/categories", route => route.AbortAsync());
         await page.ReloadAsync();

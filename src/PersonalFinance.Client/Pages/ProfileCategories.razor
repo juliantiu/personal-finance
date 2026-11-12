@@ -119,15 +119,25 @@
                                     @foreach (var subcategory in category.Subcategories)
                                     {
                                         <li @key="subcategory.Id" class="mb-2">
-                                            @if (IsWriter)
+                                            @if (subcategory.TrackingStoppedAt is not null)
+                                            {
+                                                <MudText>@subcategory.Name</MudText>
+                                                @if (!string.IsNullOrWhiteSpace(subcategory.Comment))
+                                                {
+                                                    <MudText Typo="Typo.body2" Style="white-space: pre-wrap">Comment: @subcategory.Comment</MudText>
+                                                }
+                                                <MudText Typo="Typo.body2" role="status">Tracking stopped on @subcategory.TrackingStoppedAt.Value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'")</MudText>
+                                            }
+                                            else if (IsWriter)
                                             {
                                                 <MudTextField T="string" Label="Subcategory name" Value="GetSubcategoryDraftName(subcategory)"
                                                               ValueChanged="value => SetSubcategoryDraftName(subcategory.Id, value)" MaxLength="100"
-                                                              Disabled="_savingSubcategoryId == subcategory.Id" />
+                                                              Disabled="_savingSubcategoryId == subcategory.Id || _stoppingSubcategoryId == subcategory.Id" />
                                                 <MudTextField T="string" Label="Comment (optional)" Value="GetSubcategoryDraftComment(subcategory)"
                                                               ValueChanged="value => SetSubcategoryDraftComment(subcategory.Id, value)" Lines="3" MaxLength="2000"
-                                                              Disabled="_savingSubcategoryId == subcategory.Id" />
-                                                <MudButton OnClick="() => SaveSubcategoryAsync(category, subcategory)" Disabled="_savingSubcategoryId == subcategory.Id"
+                                                              Disabled="_savingSubcategoryId == subcategory.Id || _stoppingSubcategoryId == subcategory.Id" />
+                                                <MudButton OnClick="() => SaveSubcategoryAsync(category, subcategory)"
+                                                           Disabled="_savingSubcategoryId == subcategory.Id || _stoppingSubcategoryId == subcategory.Id"
                                                            Variant="Variant.Outlined" Color="Color.Primary">
                                                     @(_savingSubcategoryId == subcategory.Id ? "Saving…" : "Save subcategory")
                                                 </MudButton>
@@ -138,6 +148,11 @@
                                                     </MudAlert>
                                                     <MudButton OnClick="() => ReloadAfterSubcategoryConflictAsync(subcategory.Id)" Variant="Variant.Outlined">Load latest subcategory</MudButton>
                                                 }
+                                                <MudButton OnClick="() => StopTrackingSubcategoryAsync(category, subcategory)"
+                                                           Disabled="_stoppingSubcategoryId == subcategory.Id || _savingSubcategoryId == subcategory.Id"
+                                                           Variant="Variant.Outlined" Color="Color.Error" Class="ml-2">
+                                                    @(_stoppingSubcategoryId == subcategory.Id ? "Stopping…" : "Stop tracking")
+                                                </MudButton>
                                             }
                                             else
                                             {
@@ -146,6 +161,11 @@
                                                 {
                                                     <MudText Typo="Typo.body2" Style="white-space: pre-wrap">Comment: @subcategory.Comment</MudText>
                                                 }
+                                            }
+                                            @if (_subcategoryDeleteErrorId == subcategory.Id)
+                                            {
+                                                <MudAlert Severity="Severity.Warning" Class="mt-2" role="alert">@_subcategoryDeleteError</MudAlert>
+                                                <MudButton OnClick="() => ReviewAfterSubcategoryDeleteAsync(subcategory.Id)" Variant="Variant.Outlined">Reload subcategory</MudButton>
                                             }
                                         </li>
                                     }
@@ -204,6 +224,9 @@
     private Guid? _creatingSubcategoryCategoryId;
     private Guid? _uncertainSubcategoryCategoryId;
     private Guid? _savingSubcategoryId;
+    private Guid? _stoppingSubcategoryId;
+    private Guid? _subcategoryDeleteErrorId;
+    private string? _subcategoryDeleteError;
     private Guid? _conflictSubcategoryId;
     private string _newCategoryName = string.Empty;
     private string? _newCategoryComment;
@@ -460,7 +483,6 @@
         finally { _savingSubcategoryId = null; }
     }
 
-    // Comment ID: METHOD-077. Reloads the authoritative child while retaining the writer's unresolved draft.
     private async Task ReloadAfterSubcategoryConflictAsync(Guid subcategoryId)
     {
         await LoadCategoriesAsync(preserveDrafts: true);
@@ -468,7 +490,60 @@
             SetUnavailable();
     }
 
-    // Comment ID: METHOD-078. Requires a fresh category read before an uncertain child creation can be retried.
+    private async Task StopTrackingSubcategoryAsync(ProfileCategoryResponse category, ProfileSubcategoryResponse subcategory)
+    {
+        if (_stoppingSubcategoryId is not null || !IsWriter || subcategory.TrackingStoppedAt is not null) return;
+        _subcategoryDeleteErrorId = null;
+        _subcategoryDeleteError = null;
+        _stoppingSubcategoryId = subcategory.Id;
+        try
+        {
+            var token = await GetAntiforgeryTokenAsync();
+            using var request = CredentialedRequest(HttpMethod.Delete,
+                $"api/budget-profiles/{ProfileId}/categories/{category.Id}/subcategories/{subcategory.Id}");
+            request.Headers.Add("X-CSRF-TOKEN", token);
+            request.Content = JsonContent.Create(new StopTrackingSubcategoryRequest(subcategory.Version));
+            using var response = await Http.SendAsync(request, _lifetime.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized) { ReturnToLogin(); return; }
+            if (response.StatusCode == HttpStatusCode.NotFound) { SetUnavailable(); return; }
+            if (response.StatusCode == HttpStatusCode.Conflict)
+            {
+                await LoadCategoriesAsync(preserveDrafts: true);
+                _subcategoryDeleteErrorId = subcategory.Id;
+                _subcategoryDeleteError = "This subcategory changed before the request completed. Review its latest status before trying again.";
+                return;
+            }
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadAsync();
+                return;
+            }
+            _subcategoryDeleteErrorId = subcategory.Id;
+            _subcategoryDeleteError = "We couldn't confirm the tracking change. Reload the subcategory to check its saved status.";
+            await LoadCategoriesAsync(preserveDrafts: true);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            _subcategoryDeleteErrorId = subcategory.Id;
+            _subcategoryDeleteError = "We couldn't confirm the tracking change. Reload the subcategory to check its saved status.";
+            await LoadCategoriesAsync(preserveDrafts: true);
+        }
+        finally { _stoppingSubcategoryId = null; }
+    }
+
+    private async Task ReviewAfterSubcategoryDeleteAsync(Guid subcategoryId)
+    {
+        await LoadCategoriesAsync(preserveDrafts: true);
+        if (_categories?.Categories.SelectMany(category => category.Subcategories).Any(value => value.Id == subcategoryId) != true)
+            SetUnavailable();
+        else
+        {
+            _subcategoryDeleteErrorId = null;
+            _subcategoryDeleteError = null;
+        }
+    }
+
     private async Task ReviewAfterUncertainSubcategoryAsync(Guid categoryId)
     {
         await LoadAsync();

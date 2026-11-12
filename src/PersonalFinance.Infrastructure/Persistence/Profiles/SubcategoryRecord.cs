@@ -6,5 +6,6 @@ public sealed class SubcategoryRecord
     public Guid CategoryId { get; set; }
     public string Name { get; set; } = string.Empty;
     public string? Comment { get; set; }
+    public DateTimeOffset? TrackingStoppedAt { get; set; }
     public byte[] Version { get; set; } = [];
 }

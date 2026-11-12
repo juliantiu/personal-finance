@@ -40,6 +40,7 @@ public sealed class EfProfileSubcategoryWriter(AccountIdentityDbContext database
             value.Id == subcategoryId && value.CategoryId == categoryId &&
             database.Categories.Any(category => category.Id == value.CategoryId && category.ProfileId == profileId), cancellationToken);
         if (record is null) return UpdateProfileSubcategoryResult.NotFound;
+        if (record.TrackingStoppedAt is not null) return UpdateProfileSubcategoryResult.NotFound;
         if (!record.Version.SequenceEqual(expectedVersion)) return UpdateProfileSubcategoryResult.Conflict;
 
         record.Name = metadata.Name;
@@ -55,7 +56,31 @@ public sealed class EfProfileSubcategoryWriter(AccountIdentityDbContext database
         }
     }
 
-    // Comment ID: METHOD-074. Allows the profile owner or a current editor to mutate profile category data.
+    public async Task<StopTrackingProfileSubcategoryResult> StopTrackingAsync(Guid accountId, Guid profileId,
+        Guid categoryId, Guid subcategoryId, byte[] expectedVersion, CancellationToken cancellationToken)
+    {
+        if (!await CanEditAsync(accountId, profileId, cancellationToken)) return StopTrackingProfileSubcategoryResult.NotFound;
+        var record = await database.Subcategories.SingleOrDefaultAsync(value =>
+            value.Id == subcategoryId && value.CategoryId == categoryId &&
+            database.Categories.Any(category => category.Id == value.CategoryId && category.ProfileId == profileId), cancellationToken);
+        if (record is null) return StopTrackingProfileSubcategoryResult.NotFound;
+        if (!record.Version.SequenceEqual(expectedVersion)) return StopTrackingProfileSubcategoryResult.Conflict;
+        if (record.TrackingStoppedAt is not null) return StopTrackingProfileSubcategoryResult.Stopped;
+
+        var subcategory = DomainProfileSubcategory.Restore(record.Id, record.CategoryId, record.Name, record.Comment)
+            .StopTracking(DateTimeOffset.UtcNow);
+        record.TrackingStoppedAt = subcategory.TrackingStoppedAt;
+        try
+        {
+            await database.SaveChangesAsync(cancellationToken);
+            return StopTrackingProfileSubcategoryResult.Stopped;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return StopTrackingProfileSubcategoryResult.Conflict;
+        }
+    }
+
     private async Task<bool> CanEditAsync(Guid accountId, Guid profileId, CancellationToken cancellationToken) =>
         await database.BudgetProfiles.AnyAsync(profile => profile.Id == profileId && profile.OwnerAccountId == accountId, cancellationToken)
         || await database.ProfileAccess.AnyAsync(access => access.ProfileId == profileId && access.AccountId == accountId && access.Role == "editor", cancellationToken);

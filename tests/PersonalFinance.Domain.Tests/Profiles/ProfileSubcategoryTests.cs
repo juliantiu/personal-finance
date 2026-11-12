@@ -62,4 +62,18 @@ public sealed class ProfileSubcategoryTests
     {
         Assert.Throws<ArgumentException>(() => ProfileSubcategory.Create(Guid.Empty, "Food", null));
     }
+
+    [Fact]
+    public void Stopping_tracking_records_once_and_metadata_cannot_change_afterward()
+    {
+        var stoppedAt = new DateTimeOffset(2026, 11, 11, 12, 30, 0, TimeSpan.Zero);
+        var subcategory = ProfileSubcategory.Create(Guid.NewGuid(), "Food", "weekly");
+
+        var stopped = subcategory.StopTracking(stoppedAt);
+        var stoppedAgain = stopped.StopTracking(stoppedAt.AddHours(1));
+
+        Assert.Equal(stoppedAt, stopped.TrackingStoppedAt);
+        Assert.Equal(stoppedAt, stoppedAgain.TrackingStoppedAt);
+        Assert.Throws<InvalidOperationException>(() => { stopped.ChangeMetadata("Groceries", null); });
+    }
 }

@@ -1,5 +1,6 @@
 using Mediator;
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Mvc;
 using PersonalFinance.Application.Profiles;
 using PersonalFinance.Contracts.Profiles;
 
@@ -16,6 +17,7 @@ public static class ProfileEndpoints
         endpoints.MapPut("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}", UpdateCategoryAsync);
         endpoints.MapPost("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}/subcategories", CreateSubcategoryAsync);
         endpoints.MapPut("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}/subcategories/{subcategoryId:guid}", UpdateSubcategoryAsync);
+        endpoints.MapDelete("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}/subcategories/{subcategoryId:guid}", StopTrackingSubcategoryAsync);
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
     }
 
@@ -30,7 +32,7 @@ public static class ProfileEndpoints
                 categories.Categories.Select(category => new ProfileCategoryResponse(category.Id, category.Name, category.Kind,
                     category.Comment, Convert.ToBase64String(category.Version), category.Subcategories.Select(subcategory =>
                         new ProfileSubcategoryResponse(subcategory.Id, subcategory.CategoryId, subcategory.Name,
-                            subcategory.Comment, Convert.ToBase64String(subcategory.Version))).ToArray())).ToArray()));
+                            subcategory.Comment, subcategory.TrackingStoppedAt, Convert.ToBase64String(subcategory.Version))).ToArray())).ToArray()));
         }
         catch (UnauthenticatedAccountException)
         {
@@ -128,6 +130,34 @@ public static class ProfileEndpoints
             {
                 UpdateProfileSubcategoryResult.Updated => Results.Ok(),
                 UpdateProfileSubcategoryResult.Conflict => Results.Conflict(new { title = "This subcategory changed since you opened it. Your draft is still available; reload the latest subcategory before saving again." }),
+                _ => Results.NotFound()
+            };
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: 401, title: "Sign in to manage profile subcategories.");
+        }
+    }
+
+    private static async Task<IResult> StopTrackingSubcategoryAsync(Guid profileId, Guid categoryId, Guid subcategoryId,
+        [FromBody] StopTrackingSubcategoryRequest request, IMediator mediator, ICurrentAccount currentAccount,
+        IAntiforgery antiforgery, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            if (await currentAccount.GetAccountIdAsync(cancellationToken) is null) throw new UnauthenticatedAccountException();
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Problem(statusCode: 400, title: "The subcategory request could not be validated. Refresh the page and try again.");
+            }
+            var result = await mediator.Send(new StopTrackingProfileSubcategoryCommand(profileId, categoryId, subcategoryId,
+                request.Version), cancellationToken);
+            return result switch
+            {
+                StopTrackingProfileSubcategoryResult.Stopped => Results.Ok(),
+                StopTrackingProfileSubcategoryResult.Conflict => Results.Conflict(new { title = "This subcategory changed since you opened it. Reload the latest subcategory before deleting it." }),
                 _ => Results.NotFound()
             };
         }
