@@ -58,9 +58,10 @@
             <ul aria-label="Profile payment methods">
                 @foreach (var method in _profile.PaymentMethods)
                 {
-                    <li @key="method.Kind">@PaymentMethodLabel(method.Kind)</li>
+                    <li @key="method.Id">@PaymentMethodLabel(method.Kind)</li>
                 }
             </ul>
+            <MudButton Href="@($"/budget-profiles/{ProfileId}/payment-methods")" Variant="Variant.Outlined" Color="Color.Primary">Review payment methods</MudButton>
         </MudPaper>
 
         <MudPaper Outlined="true" Class="pa-4 mt-4">

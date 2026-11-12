@@ -3,7 +3,7 @@ using Mediator;
 namespace PersonalFinance.Application.Profiles;
 
 public sealed record ProfileCategoryDetails(string Name, string Kind);
-public sealed record ProfilePaymentMethodDetails(string Kind);
+public sealed record ProfilePaymentMethodDetails(Guid Id, string Kind);
 public sealed record ProfileTagDetails(string Name, string? Role);
 public sealed record AccessibleProfileDetails(
     Guid Id,

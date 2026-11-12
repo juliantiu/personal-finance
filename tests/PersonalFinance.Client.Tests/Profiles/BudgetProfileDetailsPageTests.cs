@@ -31,6 +31,7 @@ public sealed class BudgetProfileDetailsPageTests
         Assert.Contains("Additional currencies: USD", page.Markup);
         Assert.Contains("Income", page.Markup);
         Assert.Contains("Cash", page.Markup);
+        Assert.Contains($"href=\"/budget-profiles/{id}/payment-methods\"", page.Markup);
         Assert.Contains("IOU", page.Markup);
         Assert.True(handler.CredentialsIncluded);
         Assert.Equal($"/api/budget-profiles/{id}", handler.Path);
@@ -154,7 +155,7 @@ public sealed class BudgetProfileDetailsPageTests
             if (NotFound) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             var details = new ProfileDetailsResponse(id, "Shared home", "GBP", ["USD"], "view_only",
                 [new ProfileCategoryDetailsResponse("Income", "income"), new ProfileCategoryDetailsResponse("Savings", "savings"), new ProfileCategoryDetailsResponse("Debt", "debt")],
-                [new ProfilePaymentMethodDetailsResponse("cash")], [new ProfileTagDetailsResponse("IOU", "iou")]);
+                [new ProfilePaymentMethodDetailsResponse(Guid.NewGuid(), "cash")], [new ProfileTagDetailsResponse("IOU", "iou")]);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(details) });
         }
     }
@@ -185,7 +186,7 @@ public sealed class BudgetProfileDetailsPageTests
         {
             var details = new ProfileDetailsResponse(id, name, currency, [], role,
                 [new ProfileCategoryDetailsResponse("Income", "income")],
-                [new ProfilePaymentMethodDetailsResponse("cash")],
+                [new ProfilePaymentMethodDetailsResponse(Guid.NewGuid(), "cash")],
                 [new ProfileTagDetailsResponse("IOU", "iou")]);
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(details) };
         }

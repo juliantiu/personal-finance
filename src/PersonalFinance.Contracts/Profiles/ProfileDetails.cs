@@ -2,7 +2,7 @@ namespace PersonalFinance.Contracts.Profiles;
 
 public sealed record ProfileCategoryDetailsResponse(string Name, string Kind);
 
-public sealed record ProfilePaymentMethodDetailsResponse(string Kind);
+public sealed record ProfilePaymentMethodDetailsResponse(Guid Id, string Kind);
 
 public sealed record ProfileTagDetailsResponse(string Name, string? Role);
 

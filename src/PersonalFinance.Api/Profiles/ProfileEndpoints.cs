@@ -10,7 +10,24 @@ public static class ProfileEndpoints
     {
         endpoints.MapGet("/api/budget-profiles", ListAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}", GetAsync);
+        endpoints.MapGet("/api/budget-profiles/{profileId:guid}/payment-methods", ListPaymentMethodsAsync);
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
+    }
+
+    private static async Task<IResult> ListPaymentMethodsAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            var methods = await mediator.Send(new ListPaymentMethodsQuery(profileId), cancellationToken);
+            if (methods is null) return Results.NotFound();
+            return Results.Ok(new ProfilePaymentMethodsResponse(methods.ProfileId, methods.ProfileName, methods.Role,
+                methods.Methods.Select(method => new ProfilePaymentMethodDetailsResponse(method.Id, method.Kind)).ToArray()));
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign in to access this budget profile.");
+        }
     }
 
     private static async Task<IResult> GetAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)
@@ -27,7 +44,7 @@ public static class ProfileEndpoints
                 profile.AdditionalCurrencies,
                 profile.Role,
                 profile.Categories.Select(category => new ProfileCategoryDetailsResponse(category.Name, category.Kind)).ToArray(),
-                profile.PaymentMethods.Select(method => new ProfilePaymentMethodDetailsResponse(method.Kind)).ToArray(),
+                profile.PaymentMethods.Select(method => new ProfilePaymentMethodDetailsResponse(method.Id, method.Kind)).ToArray(),
                 profile.Tags.Select(tag => new ProfileTagDetailsResponse(tag.Name, tag.Role)).ToArray()));
         }
         catch (UnauthenticatedAccountException)

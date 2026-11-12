@@ -56,6 +56,7 @@ public static class DependencyInjection
         services.AddScoped<IAccountIdentity, IdentityAccountIdentity>();
         services.AddScoped<IAccessibleProfileReader, EfAccessibleProfileReader>();
         services.AddScoped<IProfileDetailsReader, EfProfileDetailsReader>();
+        services.AddScoped<IProfilePaymentMethodReader, EfProfilePaymentMethodReader>();
         services.AddScoped<IProfileCreationStore, EfProfileCreationStore>();
         services.AddScoped<IAccountSessionEligibility, IdentityAccountSessionEligibility>();
         services.AddScoped<IBffSessionStore, ProtectedBffSessionStore>();
