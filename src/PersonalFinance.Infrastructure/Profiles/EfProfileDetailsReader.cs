@@ -25,7 +25,7 @@ public sealed class EfProfileDetailsReader(AccountIdentityDbContext database) : 
                     .OrderBy(category => category.Kind).Select(category => new ProfileCategoryDetails(category.Name, category.Kind)).ToList(),
                 database.PaymentMethods.Where(method => method.ProfileId == profile.Id)
                     .OrderBy(method => method.Kind).ThenBy(method => method.Id)
-                    .Select(method => new ProfilePaymentMethodDetails(method.Id, method.Kind)).ToList(),
+                    .Select(method => new ProfilePaymentMethodDetails(method.Id, method.Kind, method.Kind == "credit_card" ? "•••• " + method.LastFour : null, method.Version, method.RetiredAt != null, method.Nickname)).ToList(),
                 database.Tags.Where(tag => tag.ProfileId == profile.Id)
                     .OrderBy(tag => tag.SystemRole).ThenBy(tag => tag.Name)
                     .Select(tag => new ProfileTagDetails(tag.Name, tag.SystemRole)).ToList()))

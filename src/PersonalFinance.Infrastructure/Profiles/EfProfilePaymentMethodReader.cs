@@ -20,7 +20,7 @@ public sealed class EfProfilePaymentMethodReader(AccountIdentityDbContext databa
                     .Select(access => access.Role).First(),
                 database.PaymentMethods.Where(method => method.ProfileId == profile.Id)
                     .OrderBy(method => method.Kind).ThenBy(method => method.Id)
-                    .Select(method => new ProfilePaymentMethodDetails(method.Id, method.Kind)).ToList()))
+                    .Select(method => new ProfilePaymentMethodDetails(method.Id, method.Kind, method.Kind == "credit_card" ? "•••• " + method.LastFour : null, method.Version, method.RetiredAt != null, method.Nickname)).ToList()))
             .SingleOrDefaultAsync(cancellationToken);
     }
 }

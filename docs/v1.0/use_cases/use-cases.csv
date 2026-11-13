@@ -36,13 +36,15 @@ UC-004,Maintain categories and subcategories,Authorized writer; participant view
 - 4–5a: A child was independently deleted before its parent; parent deletion does not erase that separate status. Restoration remains undefined.
 - 4b: Only omit/deselect an item for a period through UC-006–008; this is not item deletion and does not prevent future reselection.
 - 2–5a: Saving fails; the requested change is not confirmed.","Successful edits preserve stable item identity. Explicit deletion stops new tracking without removing history, existing-period correction access, balances, or unpaid obligations. No restoration feature is introduced."
-UC-005,Save credit card payment methods,Authorized writer; application,A profile exists and the user has owner/editor permission to save payment methods.,"1. Open saved payment methods for the profile.
-2. Enter a credit card number identifying a saved card.
-3. Save the card as a profile payment method.
-4. Use the saved method across the profile's periods for transaction selection and imported-card matching.","- 2–3a: Card validation fails or saving fails; report the issue without confirming a save.
-- 2b: Profile-scoped canonical-number uniqueness is schema proposal A3, not an additional confirmed user rule; exact duplicate/normalization behavior remains open.
-- 4a: Cash is always available as an explicit transaction choice but is not preselected by default.
-- 1a: Card editing/removal and historical reference handling are not defined as user workflows.",A successfully saved card is reusable within its profile; saving it does not choose a default payment method.
+UC-005,Save credit card payment methods,Owner/editor; participant viewing methods; application,A profile exists and the eligible signed-in account has current profile access. Saving and full-number reveal require owner/editor access.,"1. Open the profile payment methods and review nicknames beside masked cards and explicit Cash (default nickname Cash).
+2. An owner/editor optionally enters a nickname (trimmed, blank to null, maximum 100 characters, duplicates allowed) and enters the full number; remove spaces/hyphens, preserve leading zeros, and require 12–19 ASCII digits with a valid Luhn checksum.
+3. Save encrypted canonical details atomically with a stable method ID and a profile-scoped matching fingerprint; display only the last four digits.
+4. Reuse active methods across profile periods for explicit transaction selection and exact imported-number matching when those workflows exist.
+5. Owners/editors may explicitly reveal, correct, or retire a card; saving a retired number restores the original method and references. These lifecycle actions are delivered in later implementation phases.","- 2–3a: Invalid input, an active duplicate, forbidden access, or a known failed save changes nothing and produces safe feedback without echoing input.
+- 2b: Equivalent formatting is one identity within a profile, including retained cards. Distinct complete numbers with the same last four digits remain distinct; another profile may save the same number.
+- 3a: A lost response is uncertain. Preserve the draft only in memory and require an explicit authoritative refresh before an explicit retry; never automatically repeat a write.
+- 4a: Cash remains available, cannot be changed by card actions, and is never selected by default. Retired cards are excluded from future selection and matching.
+- 5a: Viewers may read only masked cards. Editing retains identity/references and retirement state; old numbers stop matching. Retirement retains current details/history. Stale edits/removals conflict and require refresh without automatic resubmission.","A successfully saved card has encrypted full details, a stable profile-owned identity and masked display. Active methods are reusable without choosing a default. Future period/transaction/import integration remains a verification gate."
 UC-006,Create the first budget period,Authorized writer; application,The profile and its main currency exist. The writer is creating its first budget period.,"1. Start a period and enter start/end dates.
 2. Select available profile categories and subcategories; explicitly deleted items or children of deleted categories are unavailable for new selection.
 3. Enter each selected subcategory's allocation in the profile main currency. For Income, that allocation is expected income.

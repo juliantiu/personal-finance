@@ -9,7 +9,8 @@ public sealed class BudgetProfile
     public string MainCurrency { get; private init; } = string.Empty;
     public IReadOnlyList<string> AdditionalCurrencies { get; private init; } = [];
     public IReadOnlyList<InitialCategory> Categories { get; private init; } = [];
-    public Guid CashPaymentMethodId { get; private init; }
+    public Guid CashPaymentMethodId => CashPaymentMethod.Id;
+    public PaymentMethod CashPaymentMethod { get; private init; } = null!;
     public IReadOnlyList<InitialTag> Tags { get; private init; } = [];
 
     private BudgetProfile() { }
@@ -28,9 +29,10 @@ public sealed class BudgetProfile
         if (additional.Any(currency => !IsSupportedCurrency(currency) || currency == mainCurrency) || additional.Distinct().Count() != additional.Length)
             throw new ArgumentException("Additional currencies must be supported, distinct, and different from the main currency.", nameof(additionalCurrencies));
 
+        var profileId = Guid.NewGuid();
         return new BudgetProfile
         {
-            Id = Guid.NewGuid(), OwnerAccountId = ownerAccountId, Name = trimmedName, MainCurrency = mainCurrency!,
+            Id = profileId, OwnerAccountId = ownerAccountId, Name = trimmedName, MainCurrency = mainCurrency!,
             AdditionalCurrencies = Array.AsReadOnly(additional),
             Categories = Array.AsReadOnly(new[]
             {
@@ -38,7 +40,7 @@ public sealed class BudgetProfile
                 new InitialCategory(Guid.NewGuid(), "Savings", SystemCategoryKind.Savings),
                 new InitialCategory(Guid.NewGuid(), "Debt", SystemCategoryKind.Debt)
             }),
-            CashPaymentMethodId = Guid.NewGuid(),
+            CashPaymentMethod = PaymentMethod.CreateCash(profileId),
             Tags = Array.AsReadOnly(new[]
             {
                 new InitialTag(Guid.NewGuid(), "IOU", SystemTagRole.Iou),

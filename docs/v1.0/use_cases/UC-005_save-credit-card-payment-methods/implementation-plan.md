@@ -1,13 +1,13 @@
 # UC-005 credit card payment methods implementation plan
 
-Status: **Phase 1 approved and completed on 11 November 2026, including local verification. Phases 2–6 are not started.**
+Status: **Phase 1 completed on 11 November 2026. Phase 2 approved and completed on 12 November 2026, including local verification. Phases 3–6 are not started.**
 
 ## Sources and current baseline
 
 `docs/v1.0/` is the latest numeric version and the only version directory directly under `docs/`, checked on 11 November 2026. Resolve the version again before implementation.
 
 - [Proposal](../../PROPOSAL.md), [written UC-005](../use-cases.md#uc-005), and its [flow](flow.md), [states](states.md), and [sequence](sequence.md): profile payment methods, reuse across periods, explicit Cash, and truthful save failures.
-- [Technical specification](../../technical.specification.md) and [logical schema](../../migrations/schema-design.md): Clean/Onion architecture, DDD, profile boundaries, PaymentMethod/CreditCard, proposed A3, masked display, and sensitive-data handling.
+- [Technical specification](../../technical.specification.md) and [logical schema](../../migrations/schema-design.md): Clean/Onion architecture, DDD, profile boundaries, PaymentMethod/CreditCard, resolved UC-005/A3, masked display, and sensitive-data handling.
 - [UC-002 plan](../UC-002_create-and-access-budget-profiles/implementation-plan.md) and [UC-020 plan](../UC-020_sign-in-and-sign-out/implementation-plan.md): existing profile creation/access, BFF sessions, antiforgery, persistent protection keys, and local verification conventions.
 
 At the user's request, `origin/develop` was fetched and merged into `v1.0/uc-005/save-credit-card-payment-methods`. The merge fast-forwarded to `089fb426325edf2557363e5c2ed0baa24fcbecdf` without conflicts. This is the implementation baseline; work present only on other feature branches is not assumed to be available.
@@ -25,6 +25,7 @@ UC-005 includes listing, saving, revealing, editing, retiring, and restoring pro
 | Topic | Confirmed behavior |
 | --- | --- |
 | Input | Collect the full card number. Remove spaces and hyphens, require 12–19 ASCII digits, and require a valid Luhn checksum. Do not use a card-brand whitelist. Preserve leading zeros as text. |
+| Nickname amendment | Optional trimmed nickname, blank to null, maximum 100 characters; duplicates allowed. Include storage/API, add-card input and masked lists. Existing/new Cash defaults to `Cash`; existing cards remain null. Renaming existing methods, including Cash, is deferred to Phase 4. |
 | Dependencies | Implement normalization and Luhn using existing .NET capabilities without another validation library. No paid service or card-verification call is included. |
 | Duplicates | A canonical number identifies at most one saved method in a profile, including retired methods. Reject an active duplicate with a clear field error. The same number may be saved independently in another profile. |
 | Storage and reveal | Store the full number encrypted; ordinary responses/display remain masked. Only owners/editors may explicitly reveal the full number. Store no security code or banking credentials. |
@@ -35,7 +36,7 @@ UC-005 includes listing, saving, revealing, editing, retiring, and restoring pro
 
 Editing a number changes the current card details reached through existing historical references. This deliberately permits past payments to display the corrected current number; no old-number snapshot or alias history is introduced. It does not rewrite original imported statement evidence. Editing does not itself change whether a method is retired.
 
-The earlier UC-005 diagrams and A3 wording describe previously unresolved policies. The decisions above supplement those artifacts for this implementation. Reconciling the written UC-005 record, CSV, diagram policy notes, and applicable specification/schema text is a documentation task within the relevant phase; preserve unrelated use cases and proposed policies.
+Phase 2 reconciles the written UC-005 record, CSV, diagrams, proposal and applicable specification/schema text with these confirmed decisions. Unrelated use cases and proposed policies remain unchanged. Reconciliation records the confirmed full scope; it does not mark later implementation phases complete.
 
 Luhn validates number consistency, not whether an account was issued or remains active. See [Cybersource's check-digit description](https://developer.cybersource.com/docs/cybs/en-us/test-data/developer/all/so/test-data/best_practices_intro/checking_digit_scheme.html) and [Authorize.net's explanation of its limits](https://support.authorize.net/knowledgebase/article/000001556/en-us). The 12–19 range is the user-selected supported-input policy.
 
@@ -60,7 +61,7 @@ Luhn validates number consistency, not whether an account was issued or remains 
 
 The following technical design is part of the plan for approval; the product decisions above are already confirmed.
 
-- **Domain:** Introduce a card-number value object and the card payment-method behavior needed for validation, number correction, retirement, and restoration. Keep stable method/profile identity and Cash/card distinction explicit. Avoid generated `ToString` output that exposes a full number. Domain code must not depend on EF, HTTP, Identity, encryption providers, or MudBlazor.
+- **Domain:** The approved 13 November 2026 refactor introduces `PaymentMethod`, owning stable ID, profile ID, `PaymentMethodKind`, normalized nickname and an optional validated `CardNumber`. Controlled Cash/card factories enforce construction rules. `BudgetProfile` owns its initial Cash entity and derives its Cash ID from it. Nickname normalization belongs to the entity; the separate static helper is removed. Keep the existing `CardNumber` wrapper for canonicalization, Luhn and masked diagnostics. Domain code stays independent of EF, HTTP, Identity, encryption providers and MudBlazor. Reveal, editing and retirement/restoration remain in their separately approved phases.
 - **Application:** Add focused Mediator queries/commands for listing, saving/restoring, revealing, editing, and retiring cards. Reuse `ICurrentAccount`; add the minimal access/persistence/protection ports required by these behaviors. Authenticate and authorize the resource before exposing card-specific validation. Use FluentValidation for request shape and authoritative domain behavior for canonical number rules. Recheck current access and expected record state at the write boundary.
 - **Infrastructure:** Extend existing payment-method persistence rather than add a second profile/payment store. The proposed physical mapping keeps card subtype columns on `PaymentMethods`: protected number, 32-byte keyed fingerprint, matching-key identifier, last four digits, nullable `DateTimeOffset` retirement time, and SQL `rowversion`. Cash has no card details and cannot be retired. Add shape constraints for Cash/card rows and a unique filtered index on `(ProfileId, NumberFingerprint)` for all cards, including retired cards. This physically colocates the logical CreditCard subtype and allows SQL Server to enforce profile uniqueness without a uniqueness constraint across a join. Preserve the existing filtered Cash index.
 - **Protection and matching:** Reuse the already-referenced ASP.NET Core Data Protection provider with a dedicated card purpose chain bound to profile and method IDs. Store a separate HMAC-SHA-256 fingerprint over an unambiguous profile-ID/canonical-number encoding using a dedicated server-held random 256-bit matching key. Use existing .NET cryptographic APIs; add no package. Fingerprints support exact duplicate lookup without decrypting every row; suffixes support masked display only. No full number goes into a key purpose, exception, or log. Use a separate Application protection port so inner layers never reference Data Protection.
@@ -85,7 +86,7 @@ Add an access-scoped list query/EF projection, stable-ID DTO, no-store GET endpo
 
 ### Phase 2 Save validated encrypted cards
 
-**Status:** Not started.
+**Status:** Complete on 12 November 2026. See [Phase 2 verification](verification-phase-2.md) for observed red/green results, full regression counts and environment limits, and [card protection operations](card-protection.md) for backend configuration and recovery notes.
 
 Introduce canonical number rules, save command, current owner/editor write authorization, protection/fingerprint adapters, the card persistence extension/migration, POST endpoint, and add-card form. Persist protected number/fingerprint/suffix atomically. Enforce profile duplicates in SQL and map the known constraint failure to safe field feedback. Update the list to display multiple masked cards. Add truthful save failure/uncertainty behavior immediately. Reconcile the baseline UC-005 documentation with the confirmed scope and input/storage decisions.
 
@@ -103,11 +104,11 @@ Add a dedicated application operation, exact scoped lookup/decryption adapter, a
 
 **Exit criterion:** Only a current owner/editor can explicitly retrieve the requested full number, and the client does not retain it after the relevant UI context ends.
 
-### Phase 4 Edit the number on the existing method
+### Phase 4 Edit existing payment-method details
 
 **Status:** Not started.
 
-Add a versioned edit command/store operation, PUT contract/endpoint, and edit form using the existing role/reveal boundaries. Permit changing the number on the same method even after use. Update protected number/fingerprint/suffix/version together, keep the ID/profile/kind and retirement state, and exclude the same method from its own duplicate check. Do not add number-history/version entities or rewrite raw import records. Number entry and edited input follow Phase 2 validation.
+Add a versioned edit command/store operation, PUT contract/endpoint, and edit form using the existing role/reveal boundaries. Permit changing the number on the same method even after use. Update protected number/fingerprint/suffix/version together, keep the ID/profile/kind and retirement state, and exclude the same method from its own duplicate check. Do not add number-history/version entities or rewrite raw import records. Number entry and edited input follow Phase 2 validation. The approved nickname amendment also defers renaming existing methods, including Cash, to this phase; retain the optional trimmed 100-character rule and duplicate-name allowance. Cash remains protected from card-number changes and card retirement.
 
 **Red and green checks:** Test persisted ID/profile preservation; formatting-only and same-number saves; replacement of suffix/ciphertext/fingerprint; old-number lookup no longer identifying this card; new-number duplicate enforcement including provider-level concurrent races; forbidden/cross-profile edits; and a fault leaving all old details intact. Two editors starting with one version must produce one accepted edit and one conflict. Component/browser cases verify validation, masked reread, reveal of the new number, preserved drafts on conflict, and refresh without automatic resubmission. The real after-use transaction scenario remains in the dependency checks below.
 
@@ -150,8 +151,22 @@ Until those workflows exist, these are tracked integration gates rather than com
 
 ## Exclusions and approval
 
-This plan does not implement sharing administration, payment processing, live card-account verification, card nicknames/expiry/security codes, default payment selection, permanent card erasure, manual restoration outside re-saving, transaction/import screens, bank-format extraction, cloud provisioning, or unrelated category/currency work. Existing account-erasure rules still govern eventual permanent erasure of profile-owned card data.
+This plan does not implement sharing administration, payment processing, live card-account verification, card expiry/security codes, default payment selection, permanent card erasure, manual restoration outside re-saving, transaction/import screens, bank-format extraction, cloud provisioning, or unrelated category/currency work. Existing account-erasure rules still govern eventual permanent erasure of profile-owned card data.
 
 The user authorized the completed `origin/develop` merge and the original documentation task. After review of the concrete Phase 1 implementation plan, the user explicitly approved Phase 1 on 11 November 2026. That approval covers the read-only payment-method slice and its tests and verification documentation. It does not authorize starting another phase or changing the ordinary development database. No builds, test suites, or migrations were run while originally preparing this plan; subsequent implementation checks are recorded separately.
 
-**Checkpoint:** Phase 1 is complete and work is paused at its learning checkpoint. Phase 2 has not started. Further phases remain subject to the project's clarification and plan-approval process.
+The user explicitly approved the concrete Phase 2 plan on 12 November 2026 and asked for implementation through completion. That approval covers validated encrypted saving, current write authorization, card protection/fingerprints and readiness, the persistence extension/migration, masked projections/form, truthful failure recovery, red/green and regression checks, and reconciliation/verification documentation. It does not authorize applying the migration to the ordinary development database or starting Phase 3.
+
+**Checkpoint:** Phase 2 is complete and work stops at its learning checkpoint. Phases 3–6 remain not started and subject to the project's clarification and plan-approval process.
+
+## Nickname amendment — 12 November 2026
+
+**Status:** Complete, including red/green, migration, regression and Chrome/Edge verification. Renaming existing methods remains deferred.
+
+The user approved the concrete nickname plan after confirming storage/API, add-card input, masked-list display, optional trimmed text (blank to null, at most 100 characters), duplicate names allowed and Cash default `Cash`. Renaming existing methods, including Cash, is explicitly deferred to the planned editing phase. This amendment does not start Phase 3 or apply a migration to the ordinary development database. See [nickname verification](verification-nicknames.md).
+
+## PaymentMethod entity refactor — 13 November 2026
+
+**Status:** Complete, including observed red/green cycles, 323 non-browser regression tests and 12 workflows in each of Chrome and Edge. No new migration was required and no later feature phase was started.
+
+The user approved the concrete refactor plan after reviewing the distinction between a payment-method entity, a validated card-number value and nickname rules. The completed save/profile-creation slice now constructs `PaymentMethod` in Domain, normalizes nicknames there, and passes the entity through the card write port together with protected details. `PaymentMethodRecord` remains an Infrastructure representation; masked reads remain projections. No new migration, API/UI behavior or editing/reveal/retirement feature is part of this refactor. The existing ordinary database remains untouched. See [refactor verification](verification-payment-method-entity.md).

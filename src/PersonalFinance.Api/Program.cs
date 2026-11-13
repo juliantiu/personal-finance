@@ -76,6 +76,7 @@ if (accountEndpointsEnabled)
     if (openIddictEnabled)
     {
         authenticationConfiguration!.ConfigureDataProtection(builder.Services);
+        builder.Services.AddSingleton(new PersonalFinance.Infrastructure.Profiles.CardKeyReadiness(authenticationConfiguration.Persistent));
         builder.Services.AddScoped<IBffSessionTokenProvider, BffSessionTokenProvider>();
         builder.Services.AddScoped<IBffTokenRefresher, OpenIddictBffTokenRefresher>();
         builder.Services.AddScoped<IBffGrantRevoker, OpenIddictBffGrantRevoker>();

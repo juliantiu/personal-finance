@@ -25,9 +25,19 @@ internal static class ProfileCreationConfiguration
         });
         builder.Entity<PaymentMethodRecord>(method =>
         {
-            method.ToTable("PaymentMethods", table => table.HasCheckConstraint("CK_PaymentMethods_Kind", "[Kind] = 'cash'"));
+            method.ToTable("PaymentMethods", table =>
+            {
+                table.HasCheckConstraint("CK_PaymentMethods_Kind", "[Kind] IN ('cash', 'credit_card')");
+                table.HasCheckConstraint("CK_PaymentMethods_CardShape", "([Kind] = 'cash' AND [ProtectedNumber] IS NULL AND [NumberFingerprint] IS NULL AND [MatchingKeyId] IS NULL AND [LastFour] IS NULL AND [RetiredAt] IS NULL) OR ([Kind] = 'credit_card' AND [ProtectedNumber] IS NOT NULL AND DATALENGTH([ProtectedNumber]) > 0 AND [NumberFingerprint] IS NOT NULL AND DATALENGTH([NumberFingerprint]) = 32 AND [MatchingKeyId] IS NOT NULL AND LEN([MatchingKeyId]) = 64 AND [LastFour] IS NOT NULL AND DATALENGTH([LastFour]) = 8 AND [LastFour] COLLATE Latin1_General_100_BIN2 NOT LIKE '%[^0-9]%')");
+            });
             method.HasKey(value => value.Id);
-            method.Property(value => value.Kind).HasMaxLength(4).IsRequired();
+            method.Property(value => value.Kind).HasMaxLength(11).IsRequired();
+            method.Property(value => value.Nickname).HasMaxLength(100);
+            method.Property(value => value.NumberFingerprint).HasMaxLength(32);
+            method.Property(value => value.MatchingKeyId).HasMaxLength(64);
+            method.Property(value => value.LastFour).HasMaxLength(4);
+            method.Property(value => value.Version).IsRowVersion();
+            method.HasIndex(value => new { value.ProfileId, value.NumberFingerprint }).IsUnique().HasFilter("[Kind] = 'credit_card'");
             method.HasIndex(value => new { value.ProfileId, value.Kind }).IsUnique().HasFilter("[Kind] = 'cash'");
             method.HasOne<BudgetProfileRecord>().WithMany().HasForeignKey(value => value.ProfileId).OnDelete(DeleteBehavior.Cascade);
         });

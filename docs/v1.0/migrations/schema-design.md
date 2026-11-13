@@ -192,6 +192,7 @@ erDiagram
         identifier payment_method_id PK
         identifier profile_id FK
         text method_kind
+        text nickname
     }
     PERIOD_CATEGORY {
         identifier period_id PK, FK
@@ -335,6 +336,7 @@ classDiagram
         +identifier payment_method_id
         +identifier profile_id
         +text method_kind
+        +text nickname
     }
     class PERIOD_CATEGORY {
         +identifier period_id
@@ -521,8 +523,13 @@ Profile and kind are reached through Category rather than copied here. The remov
 | payment_method_id | identifier | R | PK. |
 | profile_id | identifier | R | FK → BudgetProfile.profile_id. |
 | method_kind | text | R | `cash` or `credit_card`. |
+| nickname | text | O | Trimmed optional label, at most 100 characters; blank is null, duplicates allowed. Initial Cash nickname is `Cash`. |
+
+Payment methods have an optional nickname, trimmed before the 100-character limit; blank values become null and duplicates are allowed. Add-card entry accepts a nickname, and masked lists/profile details show it beside the masked number, falling back to the method label when absent. Existing and newly created Cash methods default to "Cash"; existing cards retain a null nickname. Nicknames do not affect card identity, duplicate detection, protection or matching. Renaming existing methods, including Cash, waits for the planned editing phase.
 
 Each profile has exactly one Cash method, requiring `(profile_id, method_kind)` uniqueness only for `cash`. Cash's existence does not preselect it in an entry form.
+
+The implemented Domain model uses a single `PaymentMethod` entity with an optional contained `CardNumber`, rather than separate runtime entities for each value. The logical CreditCard relation below still expresses the conditional card subtype; this conceptual relation does not require a second domain entity or physical table. Entity-owned nickname rules replace the earlier static helper. Infrastructure retains `PaymentMethodRecord` and the existing protected-column mapping. The 13 November 2026 refactor adds no migration or data changes.
 
 **CreditCard grain:** card-number details for one saved card method. **PK/only candidate key within this relation:** `payment_method_id`.
 
@@ -531,7 +538,11 @@ Each profile has exactly one Cash method, requiring `(profile_id, method_kind)` 
 | payment_method_id | identifier | R | PK; FK → PaymentMethod.payment_method_id, whose kind must be `credit_card`. |
 | card_number | text | R | Canonical card-number identity; never a numeric quantity. |
 
-Proposed A3: `(PaymentMethod.profile_id, CreditCard.card_number)` must be unique across the join. It is a candidate key of the logical saved-card view, not a local composite FK or key of CreditCard. A card number may occur in different profiles. Cash has no CreditCard row. Keeping profile ownership in PaymentMethod prevents duplicating it in card details.
+Confirmed UC-005/A3: `(PaymentMethod.profile_id, CreditCard.card_number)` is unique across the join, including retired cards. Canonicalization removes spaces/hyphens and preserves leading zeros; require 12–19 ASCII digits and Luhn without a brand whitelist. It is a candidate key of the logical saved-card view, not a local composite FK or key of CreditCard. A card number may occur in different profiles. Cash has no CreditCard row. Keeping profile ownership in PaymentMethod prevents duplicating it in card details.
+
+UC-005 physically colocates the logical card subtype on `PaymentMethods`: resource-bound encrypted number, 32-byte keyed matching fingerprint, nonsecret matching-key identifier, last-four suffix, nullable `DateTimeOffset` retirement time and SQL rowversion. SQL shape checks distinguish Cash and card rows, and a filtered unique `(ProfileId, NumberFingerprint)` index covers all cards regardless of retirement. Cash IDs and the filtered Cash uniqueness index remain unchanged. Key identifiers are excluded from the uniqueness key; mismatched identifiers prevent writes until controlled reindexing. See [protection operations](../use_cases/UC-005_save-credit-card-payment-methods/card-protection.md).
+
+Number correction retains method/profile identity and references and does not restore a retired method. Retirement retains current details/history; re-saving the retired number restores the same method. Active matching uses the current full canonical identity. These confirmed lifecycle decisions are delivered after the Phase 2 save slice; future transaction/import acceptance remains required.
 
 ### BudgetPeriod
 
@@ -822,7 +833,7 @@ The following are business dependencies for the stated grains, not observations 
 | ProfileAccess | (profile_id, account_id) → access_role. Neither profile nor account alone determines role. |
 | Category | category_id → profile_id, name, category_kind, comment, tracking_stopped_at. Special-kind uniqueness is conditional; ordinary categories invalidate a global (profile_id, category_kind) key. |
 | Subcategory | subcategory_id → category_id, name, comment, tracking_stopped_at. No profile, kind, or category name is copied. |
-| PaymentMethod | payment_method_id → profile_id, method_kind. Conditional Cash uniqueness is not a key for all methods. |
+| PaymentMethod | payment_method_id → profile_id, method_kind, nickname. Conditional Cash uniqueness is not a key for all methods. |
 | CreditCard | payment_method_id → card_number. Card number alone does not determine a method across profiles. The joined saved-card view also has candidate key (profile_id, card_number). |
 | BudgetPeriod | period_id → profile_id, start_date, end_date. Date combinations are not asserted unique. |
 | PeriodCategory | Key (period_id, category_id); no non-prime attributes. |
@@ -901,11 +912,12 @@ The ordinary dependencies listed in the table are preserved within their owning 
 
 The user confirmed D1–D15 (D8–D9 were superseded). The following interpretations are **proposed**, not additional established requirements. They do not imply a particular engine. Former A4 is resolved by D7. The newer proposal and D11 supersede D8–D9 and resolve the currency-model part of A1; D10 still governs split conservation. Existing identifiers are retained for continuity.
 
+UC-005 resolves A3 as documented under PaymentMethod/CreditCard above. The remaining proposals below are unchanged.
+
 | ID | Proposed interpretation / open question | Affected model |
 | --- | --- | --- |
 | A1 | Per-profile main currency, enabled alternatives, and main-required approval are established by D11. Precision, rounding, paired-sign/zero validation, time zone and invalid/other imported currency handling remain unspecified. No conversion or rate storage. | Currency/EntryAmount and exact validation/report boundaries. |
 | A2 | Exactly one special Income/Savings/Debt category per profile; kind stays stable when renamed. D13 resolves deletion: these categories cannot be deleted. Reparenting remains unspecified. | Category constraints and historical classification. |
-| A3 | A canonical card number is unique within a profile. Card edit/removal must preserve referenced historical payment identity. | PaymentMethod/CreditCard; matching and joined uniqueness. |
 | A5 | Tags are profile-scoped; default roles stay available. Used custom-tag deletion removes associations. Duplicate names are allowed until a rule says otherwise. | Tag/EntryTag; default uniqueness. |
 | A6 | Full repayment magnitude in profile main currency applies to its single IOU. IOU direction, partial attribution, overpayment and both-role tagging remain unspecified. All approved entries require main amounts (D11). | IOURepayment and unpaid calculation. |
 | A7 | D12 resolves removal and report behavior: explicit parent or child deletion blocks new tracking, preserves historical corrections and retains balances/obligations in reports. Restoration and other deletion workflows remain unspecified. | Subcategory lifecycle and selection validation. |
@@ -1056,6 +1068,7 @@ erDiagram
         identifier payment_method_id PK
         identifier profile_id FK
         text method_kind
+        text nickname
     }
     SUBCATEGORY {
         identifier subcategory_id PK
@@ -1191,6 +1204,7 @@ erDiagram
         identifier payment_method_id PK
         identifier profile_id FK
         text method_kind
+        text nickname
     }
     SUBCATEGORY {
         identifier subcategory_id PK

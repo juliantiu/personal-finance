@@ -515,11 +515,39 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Kind")
                         .IsRequired()
+                        .HasMaxLength(11)
+                        .HasColumnType("nvarchar(11)");
+
+                    b.Property<string>("LastFour")
                         .HasMaxLength(4)
                         .HasColumnType("nvarchar(4)");
 
+                    b.Property<string>("MatchingKeyId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("Nickname")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<byte[]>("NumberFingerprint")
+                        .HasMaxLength(32)
+                        .HasColumnType("varbinary(32)");
+
                     b.Property<Guid>("ProfileId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ProtectedNumber")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTimeOffset?>("RetiredAt")
+                        .HasColumnType("datetimeoffset");
+
+                    b.Property<byte[]>("Version")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
 
                     b.HasKey("Id");
 
@@ -527,9 +555,15 @@ namespace PersonalFinance.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("[Kind] = 'cash'");
 
+                    b.HasIndex("ProfileId", "NumberFingerprint")
+                        .IsUnique()
+                        .HasFilter("[Kind] = 'credit_card'");
+
                     b.ToTable("PaymentMethods", null, t =>
                         {
-                            t.HasCheckConstraint("CK_PaymentMethods_Kind", "[Kind] = 'cash'");
+                            t.HasCheckConstraint("CK_PaymentMethods_CardShape", "([Kind] = 'cash' AND [ProtectedNumber] IS NULL AND [NumberFingerprint] IS NULL AND [MatchingKeyId] IS NULL AND [LastFour] IS NULL AND [RetiredAt] IS NULL) OR ([Kind] = 'credit_card' AND [ProtectedNumber] IS NOT NULL AND DATALENGTH([ProtectedNumber]) > 0 AND [NumberFingerprint] IS NOT NULL AND DATALENGTH([NumberFingerprint]) = 32 AND [MatchingKeyId] IS NOT NULL AND LEN([MatchingKeyId]) = 64 AND [LastFour] IS NOT NULL AND DATALENGTH([LastFour]) = 8 AND [LastFour] COLLATE Latin1_General_100_BIN2 NOT LIKE '%[^0-9]%')");
+
+                            t.HasCheckConstraint("CK_PaymentMethods_Kind", "[Kind] IN ('cash', 'credit_card')");
                         });
                 });
 

@@ -47,11 +47,39 @@
                 <ul aria-label="Profile payment methods">
                     @foreach (var method in _methods.Methods)
                     {
-                        <li @key="method.Id">@PaymentMethodLabel(method.Kind)</li>
+                        <li @key="method.Id">@(method.Nickname ?? PaymentMethodLabel(method.Kind)) @method.MaskedIdentifier</li>
                     }
                 </ul>
             }
         </MudPaper>
+        @if (_methods.Role is "owner" or "editor")
+        {
+            <MudPaper Outlined="true" Class="pa-4 mt-5">
+                <MudText Typo="Typo.h6" HtmlTag="h2">Add card</MudText>
+                @if (_cardSuccess) { <MudAlert Severity="Severity.Success" role="status">Card saved.</MudAlert> }
+                @if (_cardError is not null) { <MudAlert Severity="Severity.Error" role="alert">@_cardError</MudAlert> }
+                <MudTextField T="string" Label="Nickname (optional)" InputId="card-nickname" Immediate="true"
+                              Value="@_nickname" ValueChanged="NicknameChanged" Disabled="_saving || _uncertain"
+                              Error="_nicknameError is not null" ErrorText="@_nicknameError" />
+                <MudTextField T="string" Label="Card number" InputId="card-number" InputType="InputType.Password" Immediate="true"
+                              Value="@_cardNumber" ValueChanged="CardNumberChanged" Disabled="_saving || _uncertain"
+                              UserAttributes="CardInputAttributes" Error="_numberError is not null" ErrorText="@_numberError" />
+                <MudText Typo="Typo.body2" Class="my-3">Enter the full number. Spaces and hyphens are allowed. Saved cards display only the last four digits.</MudText>
+                @if (_uncertain)
+                {
+                    <MudAlert Severity="Severity.Warning" role="alert">We couldn't confirm whether your card was saved. Refresh payment methods and check before choosing to retry.</MudAlert>
+                    <MudButton OnClick="RefreshCardsAsync" Disabled="_loading || _saving" Variant="Variant.Outlined">Refresh payment methods</MudButton>
+                    @if (_refreshedAfterSave)
+                    {
+                        <MudButton OnClick="RetryCardAsync" Disabled="_saving" Variant="Variant.Filled" Color="Color.Primary">Retry save</MudButton>
+                    }
+                }
+                else
+                {
+                    <MudButton OnClick="SaveCardAsync" Disabled="_saving" Variant="Variant.Filled" Color="Color.Primary">@(_saving ? "Saving…" : "Save card")</MudButton>
+                }
+            </MudPaper>
+        }
         <MudButton Href="@($"/budget-profiles/{ProfileId}")" Variant="Variant.Outlined" Color="Color.Primary" Class="mt-5">Back to profile</MudButton>
     }
 </MudContainer>
@@ -67,7 +95,11 @@
     private bool _error;
     private bool _unavailable;
 
-    protected override Task OnParametersSetAsync() => LoadAsync();
+    protected override Task OnParametersSetAsync()
+    {
+        ResetCardDraft();
+        return LoadAsync();
+    }
 
     private async Task LoadAsync()
     {
@@ -90,12 +122,14 @@
             if (generation != _loadGeneration) return;
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
+                ResetCardDraft();
                 Authentication.NotifySignedOut();
                 Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString($"/budget-profiles/{profileId}/payment-methods")}", replace: true);
                 return;
             }
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
+                ResetCardDraft();
                 _unavailable = true;
                 return;
             }
@@ -104,7 +138,12 @@
                 ?? throw new JsonException("The payment methods are missing.");
             if (methods.ProfileId != profileId || methods.Methods is null)
                 throw new JsonException("The payment methods response is invalid.");
-            if (generation == _loadGeneration) _methods = methods;
+            if (generation == _loadGeneration)
+            {
+                _methods = methods;
+                if (methods.Role is not ("owner" or "editor")) ResetCardDraft();
+                else if (_uncertain) _refreshedAfterSave = true;
+            }
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested) { }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
@@ -130,11 +169,13 @@
     private static string PaymentMethodLabel(string kind) => kind switch
     {
         "cash" => "Cash",
+        "credit_card" => "Credit card",
         _ => "Unavailable"
     };
 
     public void Dispose()
     {
+        ResetCardDraft();
         ++_loadGeneration;
         _methods = null;
         _activeLoad?.Cancel();

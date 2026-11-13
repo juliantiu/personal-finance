@@ -15,7 +15,8 @@ public sealed class EfProfileCreationStore(AccountIdentityDbContext database) : 
             new ProfileCurrencyRecord { ProfileId = profile.Id, CurrencyCode = currency }));
         database.Categories.AddRange(profile.Categories.Select(category => new CategoryRecord
         { Id = category.Id, ProfileId = profile.Id, Name = category.Name, Kind = category.Kind.ToString().ToLowerInvariant() }));
-        database.PaymentMethods.Add(new PaymentMethodRecord { Id = profile.CashPaymentMethodId, ProfileId = profile.Id, Kind = "cash" });
+        var cash = profile.CashPaymentMethod;
+        database.PaymentMethods.Add(new PaymentMethodRecord { Id = cash.Id, ProfileId = cash.ProfileId, Kind = "cash", Nickname = cash.Nickname });
         database.Tags.AddRange(profile.Tags.Select(tag => new TagRecord
         { Id = tag.Id, ProfileId = profile.Id, Name = tag.Name, SystemRole = tag.Role == SystemTagRole.Iou ? "iou" : "iou_repayment" }));
         await database.SaveChangesAsync(cancellationToken);

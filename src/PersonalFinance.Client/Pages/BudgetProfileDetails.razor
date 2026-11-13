@@ -58,7 +58,7 @@
             <ul aria-label="Profile payment methods">
                 @foreach (var method in _profile.PaymentMethods)
                 {
-                    <li @key="method.Id">@PaymentMethodLabel(method.Kind)</li>
+                    <li @key="method.Id">@(method.Nickname ?? PaymentMethodLabel(method.Kind)) @method.MaskedIdentifier</li>
                 }
             </ul>
             <MudButton Href="@($"/budget-profiles/{ProfileId}/payment-methods")" Variant="Variant.Outlined" Color="Color.Primary">Review payment methods</MudButton>
@@ -150,6 +150,7 @@
     private static string PaymentMethodLabel(string kind) => kind switch
     {
         "cash" => "Cash",
+        "credit_card" => "Credit card",
         _ => "Unavailable"
     };
 

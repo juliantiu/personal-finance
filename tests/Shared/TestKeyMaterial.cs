@@ -16,6 +16,7 @@ public sealed class TestKeyMaterial : IDisposable
     public TestKeyMaterial()
     {
         Directory.CreateDirectory(Root);
+        Settings["Cards:MatchingKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         Settings["Authentication:KeyPersistence:KeysPath"] = Path.Combine(Root, "ring");
         foreach (var name in new[] { "ServerSigning", "ServerEncryption", "ClientSigning", "ClientEncryption", "DataProtection" })
         {

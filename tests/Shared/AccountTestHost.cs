@@ -64,7 +64,11 @@ public sealed class AccountTestHost(string clientOrigin = "http://localhost:5173
             services.RemoveAll<IEmailTransport>();
             services.AddSingleton<IEmailTransport>(Email);
             if (!UsePersistentKeys)
+            {
                 services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+                // Disposable isolated hosts explicitly opt into synthetic, nonpersistent card protection.
+                services.AddSingleton(new PersonalFinance.Infrastructure.Profiles.CardKeyReadiness(true));
+            }
             ConfigureAdditionalServices?.Invoke(services);
         });
     }

@@ -50,7 +50,7 @@ public sealed class PaymentMethodListTests
         var method = Assert.Single(body.RootElement.GetProperty("methods").EnumerateArray());
         Assert.Equal(cashId, method.GetProperty("id").GetGuid());
         Assert.Equal("cash", method.GetProperty("kind").GetString());
-        Assert.Equal(new[] { "id", "kind" }, method.EnumerateObject().Select(property => property.Name).Order().ToArray());
+        Assert.Equal(new[] { "id", "isRetired", "kind", "maskedIdentifier", "nickname", "version" }, method.EnumerateObject().Select(property => property.Name).Order().ToArray());
 
         using var details = await client.GetAsync($"/api/budget-profiles/{profileId}", TestContext.Current.CancellationToken);
         using var detailsBody = JsonDocument.Parse(await details.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
