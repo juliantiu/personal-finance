@@ -1,6 +1,6 @@
 # UC-004 — Maintain categories and subcategories — Implementation plan
 
-Status: **Phases 1–4 approved, completed, and verified by 12 November 2026. Phases 5–7 are not approved or complete. Decisions below remain unresolved for their affected phases.**
+Status: **Phases 1–6 approved, completed, and verified by 12 November 2026. Phase 7 remains dependency-gated and not started. Decisions below remain unresolved for their affected phases.**
 
 ## Sources and current baseline
 
@@ -149,7 +149,7 @@ Within each phase: resolve its decisions, present the concrete phase plan for ap
 
 ### Phase 6 — Complete local category-management acceptance and evidence
 
-**Status:** Not started; depends on Phases 1–5.
+**Status:** Complete — approved, implemented, and verified 12 November 2026. See [Phase 6 verification](verification-phase-6.md).
 
 - Join the delivered flows with synthetic owner/editor/viewer accounts: review, create, rename, comment, individual deletion, and parent deletion. Include direct links, route switching, reload, and navigation back to the profile.
 - Verify current access after a grant is removed or downgraded, session loss, antiforgery rejection, validation/conflict recovery, dependency/network failure, and a response lost after a committed mutation. Preserve permitted drafts without presenting uncertain results as saved or automatically replaying creates.
@@ -160,6 +160,8 @@ Within each phase: resolve its decisions, present the concrete phase plan for ap
 **Red/green evidence:** For any newly discovered behavior gap, first reproduce the missing behavior with a focused test, then fix it within the approved scope. Existing passing behavior needs regression execution rather than artificial failing tests.
 
 **Exit criterion:** Category-management functionality has repeatable local acceptance evidence. Mark only the completed phases complete; keep UC-004's historical integration obligations explicitly pending until Phase 7 is verified.
+
+**Completion evidence:** Added browser acceptance assertions for keyboard category editing at a 390 px viewport, multiple same-name ordinary categories on the profile overview, and confirmed subcategory persistence before navigation. The three category-management Chrome workflows passed. Profile creation/currency, profile-list, and account browser regressions passed serially. Domain, Application, Client, and full LocalDB Integration suites passed; solution build and Release client publish succeeded; `git diff --check` passed. See [Phase 6 verification](verification-phase-6.md) for exact commands, coverage, and environment limits. No production behavior gap or schema change was introduced; Phase 7 remains dependency-gated.
 
 ### Phase 7 — Verify retained history through dependent financial workflows
 

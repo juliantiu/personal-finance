@@ -169,6 +169,8 @@ public sealed class ProfileCategoriesBrowserTests
         await Expect(page.GetByText("Your access: Owner", new() { Exact = true })).ToBeVisibleAsync();
         var categories = page.GetByRole(AriaRole.List, new() { Name = "Profile categories", Exact = true });
         await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(3);
+        await page.SetViewportSizeAsync(390, 844);
+        Assert.True(await page.EvaluateAsync<bool>("document.documentElement.scrollWidth <= window.innerWidth"));
         var incomeItem = categories.GetByRole(AriaRole.Listitem).Filter(new() { HasText = "System category: Income" });
         var incomeName = incomeItem.GetByLabel("Category name", new() { Exact = true });
         await Expect(incomeName).ToHaveValueAsync("Wages");
@@ -177,19 +179,38 @@ public sealed class ProfileCategoriesBrowserTests
         await Expect(categories).ToContainTextAsync("System category: Debt");
 
         await incomeName.FillAsync("Wages revised");
-        await incomeItem.GetByRole(AriaRole.Button, new() { Name = "Save category", Exact = true }).ClickAsync();
+        await page.Keyboard.PressAsync("Tab");
+        await page.Keyboard.PressAsync("Tab");
+        await Expect(incomeItem.GetByRole(AriaRole.Button, new() { Name = "Save category", Exact = true })).ToBeFocusedAsync();
+        await page.Keyboard.PressAsync("Enter");
         await Expect(incomeName).ToHaveValueAsync("Wages revised");
-        await page.GetByLabel("Category name", new() { Exact = true }).First.FillAsync("Wages revised");
-        await page.GetByLabel("Comment (optional)", new() { Exact = true }).First.FillAsync("duplicate labels are allowed");
+        var newCategoryName = page.GetByLabel("Category name", new() { Exact = true }).First;
+        await newCategoryName.FillAsync("Wages revised");
+        await Expect(newCategoryName).ToHaveValueAsync("Wages revised");
+        var newCategoryComment = page.GetByLabel("Comment (optional)", new() { Exact = true }).First;
+        await newCategoryComment.FillAsync("duplicate labels are allowed");
+        await Expect(newCategoryComment).ToHaveValueAsync("duplicate labels are allowed");
+        var createCategoryResponse = page.WaitForResponseAsync(response => response.Url.EndsWith("/categories", StringComparison.Ordinal)
+            && response.Request.Method == "POST");
         await page.GetByRole(AriaRole.Button, new() { Name = "Add category", Exact = true }).ClickAsync();
+        Assert.Equal(201, (int)(await createCategoryResponse).Status);
         try { await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(4); }
         catch (PlaywrightException exception)
         {
             throw new InvalidOperationException($"Category create did not refresh. API: {string.Join(" | ", browser.ApiResponses)}. Alerts: {string.Join(" | ", await page.GetByRole(AriaRole.Alert).AllTextContentsAsync())}. Console: {string.Join(" | ", browser.ConsoleErrors)}", exception);
         }
+        await page.SetViewportSizeAsync(1280, 900);
         var ordinaryItem = categories.GetByRole(AriaRole.Listitem).Filter(new() { HasText = "Category type: Ordinary" });
         await Expect(incomeName).ToHaveValueAsync("Wages revised");
         await Expect(ordinaryItem.GetByLabel("Category name", new() { Exact = true })).ToHaveValueAsync("Wages revised");
+        await Expect(ordinaryItem).ToHaveCountAsync(1);
+
+        await page.GetByLabel("Category name", new() { Exact = true }).First.FillAsync("Wages revised");
+        var duplicateCategoryResponse = page.WaitForResponseAsync(response => response.Url.EndsWith("/categories", StringComparison.Ordinal)
+            && response.Request.Method == "POST");
+        await page.GetByRole(AriaRole.Button, new() { Name = "Add category", Exact = true }).ClickAsync();
+        Assert.Equal(201, (int)(await duplicateCategoryResponse).Status);
+        await Expect(ordinaryItem).ToHaveCountAsync(2);
 
         var savingsItem = categories.GetByRole(AriaRole.Listitem).Filter(new() { HasText = "System category: Savings" });
         await savingsItem.GetByLabel("New subcategory name", new() { Exact = true }).FillAsync("Emergency fund");
@@ -203,15 +224,21 @@ public sealed class ProfileCategoriesBrowserTests
         await Expect(emergencyFund.GetByLabel("Subcategory name", new() { Exact = true })).ToHaveValueAsync("Emergency fund");
         await Expect(emergencyFund).ToContainTextAsync("Unexpected costs");
         await emergencyFund.GetByLabel("Subcategory name", new() { Exact = true }).FillAsync("Travel fund");
+        var updateSubcategoryResponse = page.WaitForResponseAsync(response => response.Url.Contains("/subcategories/", StringComparison.Ordinal)
+            && response.Request.Method == "PUT");
         await emergencyFund.GetByRole(AriaRole.Button, new() { Name = "Save subcategory", Exact = true }).ClickAsync();
+        Assert.Equal(200, (int)(await updateSubcategoryResponse).Status);
         await Expect(emergencyFund.GetByLabel("Subcategory name", new() { Exact = true })).ToHaveValueAsync("Travel fund");
 
         await page.GetByRole(AriaRole.Link, new() { Name = "Back to profile", Exact = true }).ClickAsync();
         await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Category review home", Exact = true })).ToBeVisibleAsync();
+        var profileCategoryList = page.GetByRole(AriaRole.List, new() { Name = "Profile categories", Exact = true });
+        await Expect(profileCategoryList.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(5);
+        await Expect(profileCategoryList.GetByText("Wages revised", new() { Exact = true })).ToHaveCountAsync(3);
         await page.GetByRole(AriaRole.Link, new() { Name = "Review categories", Exact = true }).ClickAsync();
         await Expect(page).ToHaveURLAsync(ownedUrl);
         await page.ReloadAsync();
-        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(5);
+        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(6);
         await Expect(incomeItem.GetByLabel("Category name", new() { Exact = true })).ToHaveValueAsync("Wages revised");
         await Expect(savingsChildren.GetByRole(AriaRole.Listitem).First.GetByLabel("Subcategory name", new() { Exact = true }))
             .ToHaveValueAsync("Travel fund");
@@ -235,7 +262,7 @@ public sealed class ProfileCategoriesBrowserTests
         await Expect(categories).ToHaveCountAsync(0);
         await page.UnrouteAsync("**/api/budget-profiles/*/categories");
         await page.GetByRole(AriaRole.Button, new() { Name = "Try again", Exact = true }).ClickAsync();
-        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(5);
+        await Expect(categories.GetByRole(AriaRole.Listitem)).ToHaveCountAsync(6);
 
         await page.SetViewportSizeAsync(390, 844);
         await page.GotoAsync(sharedUrl);
