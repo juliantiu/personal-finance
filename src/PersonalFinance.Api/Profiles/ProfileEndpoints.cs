@@ -11,6 +11,7 @@ public static class ProfileEndpoints
     {
         endpoints.MapGet("/api/budget-profiles", ListAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}", GetAsync);
+        endpoints.MapGet("/api/budget-profiles/{profileId:guid}/participants", GetParticipantsAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/currency-settings", GetCurrencySettingsAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/categories", GetCategoriesAsync);
         endpoints.MapPost("/api/budget-profiles/{profileId:guid}/categories", CreateCategoryAsync);
@@ -20,6 +21,20 @@ public static class ProfileEndpoints
         endpoints.MapPut("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}/subcategories/{subcategoryId:guid}", UpdateSubcategoryAsync);
         endpoints.MapDelete("/api/budget-profiles/{profileId:guid}/categories/{categoryId:guid}/subcategories/{subcategoryId:guid}", StopTrackingSubcategoryAsync);
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
+    }
+
+    private static async Task<IResult> GetParticipantsAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            var participants = await mediator.Send(new ListProfileParticipantsQuery(profileId), cancellationToken);
+            return participants is null ? Results.NotFound() : Results.Ok(participants.Select(value => new ProfileParticipantResponse(value.Email, value.Role)));
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign in to review profile sharing.");
+        }
     }
 
     private static async Task<IResult> GetCategoriesAsync(Guid profileId, IMediator mediator, HttpContext context, CancellationToken cancellationToken)

@@ -84,6 +84,64 @@ public sealed class ProfileListBrowserTests
     }
 
     [Fact]
+    public async Task Only_original_owner_sees_the_sharing_view_and_saved_participant_roles()
+    {
+        await using var browser = await BrowserSession.StartAsync();
+        Guid ownerId;
+        Guid editorId;
+        Guid secondOwnerId;
+        using (var scope = browser.Api.Services.CreateScope())
+        {
+            var manager = scope.ServiceProvider.GetRequiredService<UserManager<AccountIdentityUser>>();
+            var owner = new AccountIdentityUser { UserName = "sharing-owner@example.test", Email = "sharing-owner@example.test", EmailConfirmed = true };
+            var editor = new AccountIdentityUser { UserName = "sharing-editor@example.test", Email = "sharing-editor@example.test", EmailConfirmed = true };
+            var secondOwner = new AccountIdentityUser { UserName = "sharing-second-owner@example.test", Email = "sharing-second-owner@example.test", EmailConfirmed = true };
+            Assert.True((await manager.CreateAsync(owner, "abcdefghijkl")).Succeeded);
+            Assert.True((await manager.CreateAsync(editor, "abcdefghijkl")).Succeeded);
+            Assert.True((await manager.CreateAsync(secondOwner, "abcdefghijkl")).Succeeded);
+            ownerId = owner.Id;
+            editorId = editor.Id;
+            secondOwnerId = secondOwner.Id;
+        }
+
+        var ownedId = Guid.NewGuid();
+        var viewedId = Guid.NewGuid();
+        await browser.Api.WithDatabaseAsync(async db =>
+        {
+            db.BudgetProfiles.AddRange(
+                new BudgetProfileRecord { Id = ownedId, OwnerAccountId = ownerId, Name = "Owned sharing profile", MainCurrencyCode = "GBP" },
+                new BudgetProfileRecord { Id = viewedId, OwnerAccountId = secondOwnerId, Name = "Viewed sharing profile", MainCurrencyCode = "USD" });
+            db.ProfileAccess.AddRange(
+                new ProfileAccessRecord { ProfileId = ownedId, AccountId = editorId, Role = "editor" },
+                new ProfileAccessRecord { ProfileId = viewedId, AccountId = ownerId, Role = "view_only" });
+            AddInitialSetup(db, ownedId);
+            AddInitialSetup(db, viewedId);
+            await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return true;
+        });
+
+        var page = browser.Page;
+        await page.GotoAsync(browser.ClientUrl + "/budget-profiles");
+        await Expect(page).ToHaveURLAsync(browser.ClientUrl + "/login?returnUrl=%2Fbudget-profiles");
+        await page.GetByLabel("Email address", new() { Exact = true }).FillAsync("sharing-owner@example.test");
+        await page.GetByLabel("Password", new() { Exact = true }).FillAsync("abcdefghijkl");
+        await page.GetByRole(AriaRole.Button, new() { Name = "Sign in", Exact = true }).ClickAsync();
+        await Expect(page).ToHaveURLAsync(browser.ClientUrl + "/budget-profiles");
+
+        await page.GotoAsync(browser.ClientUrl + $"/budget-profiles/{ownedId}");
+        await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Owned sharing profile", Exact = true })).ToBeVisibleAsync();
+        await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Sharing", Exact = true })).ToBeVisibleAsync();
+        var participants = page.GetByRole(AriaRole.List, new() { Name = "Profile participants" });
+        await Expect(participants).ToContainTextAsync("sharing-editor@example.test — Editor");
+
+        await page.GotoAsync(browser.ClientUrl + $"/budget-profiles/{viewedId}");
+        await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Viewed sharing profile", Exact = true })).ToBeVisibleAsync();
+        await Expect(page.GetByText("Your access: View only", new() { Exact = true })).ToBeVisibleAsync();
+        await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Sharing", Exact = true })).ToHaveCountAsync(0);
+        Assert.Empty(browser.PageErrors);
+    }
+
+    [Fact]
     public async Task Protected_list_supports_real_sign_in_current_grants_and_recoverable_load_failure()
     {
         await using var browser = await BrowserSession.StartAsync();

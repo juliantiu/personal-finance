@@ -39,6 +39,65 @@ public sealed class BudgetProfileDetailsPageTests
     }
 
     [Fact]
+    public async Task Owner_sees_loading_then_populated_participant_list()
+    {
+        var id = Guid.NewGuid();
+        var participantResponse = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new ParticipantsStubHandler(id, "owner", participantResponse.Task);
+        await using var context = CreateContext(handler, $"/budget-profiles/{id}");
+
+        var page = context.Render<App>();
+        await handler.ParticipantRequested.Task.WaitAsync(TimeSpan.FromSeconds(5), Xunit.TestContext.Current.CancellationToken);
+        page.WaitForAssertion(() => Assert.Contains("Loading participants…", page.Markup));
+
+        participantResponse.SetResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new[]
+            {
+                new ProfileParticipantResponse("editor@example.test", "editor"),
+                new ProfileParticipantResponse("viewer@example.test", "view_only")
+            })
+        });
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Sharing", page.Markup);
+            Assert.Contains("editor@example.test — Editor", page.Markup);
+            Assert.Contains("viewer@example.test — View only", page.Markup);
+        });
+        Assert.Equal($"/api/budget-profiles/{id}/participants", handler.ParticipantPath);
+        Assert.True(handler.ParticipantCredentialsIncluded);
+    }
+
+    [Fact]
+    public async Task Owner_sees_empty_participant_state()
+    {
+        var id = Guid.NewGuid();
+        var handler = new ParticipantsStubHandler(id, "owner");
+        await using var context = CreateContext(handler, $"/budget-profiles/{id}");
+
+        var page = context.Render<App>();
+
+        page.WaitForAssertion(() => Assert.Contains("No participants have access yet.", page.Markup));
+        Assert.Contains("Sharing", page.Markup);
+    }
+
+    [Theory]
+    [InlineData("editor")]
+    [InlineData("view_only")]
+    public async Task Non_owner_does_not_see_sharing_view_or_request_participants(string role)
+    {
+        var id = Guid.NewGuid();
+        var handler = new ParticipantsStubHandler(id, role);
+        await using var context = CreateContext(handler, $"/budget-profiles/{id}");
+
+        var page = context.Render<App>();
+
+        page.WaitForAssertion(() => Assert.Contains("Shared home", page.Markup));
+        Assert.DoesNotContain("Sharing", page.Markup);
+        Assert.Null(handler.ParticipantPath);
+    }
+
+    [Fact]
     public async Task Nonexistent_or_inaccessible_profile_shows_the_same_generic_unavailable_page()
     {
         var id = Guid.NewGuid();
@@ -156,6 +215,34 @@ public sealed class BudgetProfileDetailsPageTests
             if (NotFound) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             var details = new ProfileDetailsResponse(id, "Shared home", "GBP", ["USD"], "view_only",
                 [new ProfileCategoryDetailsResponse(Guid.NewGuid(), "Income", "income"), new ProfileCategoryDetailsResponse(Guid.NewGuid(), "Savings", "savings"), new ProfileCategoryDetailsResponse(Guid.NewGuid(), "Debt", "debt")],
+                [new ProfilePaymentMethodDetailsResponse("cash")], [new ProfileTagDetailsResponse("IOU", "iou")]);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(details) });
+        }
+    }
+
+    private sealed class ParticipantsStubHandler(Guid id, string role, Task<HttpResponseMessage>? participantResponse = null) : HttpMessageHandler
+    {
+        public TaskCompletionSource ParticipantRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public string? ParticipantPath { get; private set; }
+        public bool ParticipantCredentialsIncluded { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsolutePath == "/api/auth/session")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = JsonContent.Create(new { authenticated = true, email = "person@example.test" }) });
+
+            if (request.RequestUri.AbsolutePath.EndsWith("/participants", StringComparison.Ordinal))
+            {
+                ParticipantPath = request.RequestUri.AbsolutePath;
+                ParticipantCredentialsIncluded = request.Options.TryGetValue(new HttpRequestOptionsKey<IDictionary<string, object>>("WebAssemblyFetchOptions"), out var options)
+                    && options.TryGetValue("credentials", out var credentials) && Equals(credentials, "include");
+                ParticipantRequested.TrySetResult();
+                return participantResponse ?? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<ProfileParticipantResponse>()) });
+            }
+
+            var details = new ProfileDetailsResponse(id, "Shared home", "GBP", [], role,
+                [new ProfileCategoryDetailsResponse(Guid.NewGuid(), "Income", "income")],
                 [new ProfilePaymentMethodDetailsResponse("cash")], [new ProfileTagDetailsResponse("IOU", "iou")]);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(details) });
         }

@@ -1,3 +1,4 @@
+@* Comment ID: CLASS-047. Shows accessible profile details and an owner-only participant list. *@
 @page "/budget-profiles/{ProfileId:guid}"
 @using System.Net
 @using System.Text.Json
@@ -36,6 +37,21 @@
     {
         <MudText Typo="Typo.h4" HtmlTag="h1" GutterBottom="true">@_profile.Name</MudText>
         <MudText Typo="Typo.body1">Your access: @RoleLabel(_profile.Role)</MudText>
+        @if (_profile.Role == "owner")
+        {
+            <MudPaper Outlined="true" Class="pa-4 mt-4">
+                <MudText Typo="Typo.h6" HtmlTag="h2">Sharing</MudText>
+                @if (_participantsLoading) { <MudText role="status">Loading participants…</MudText> }
+                else if (_participantsError) { <MudAlert Severity="Severity.Error" role="alert">We couldn't load profile participants.</MudAlert><MudButton OnClick="RetryLoadParticipantsAsync">Try again</MudButton> }
+                else if (_participants is { Length: 0 }) { <MudText>No participants have access yet.</MudText> }
+                else if (_participants is not null)
+                {
+                    <ul aria-label="Profile participants">
+                        @foreach (var participant in _participants) { <li @key="participant.Email">@participant.Email — @RoleLabel(participant.Role)</li> }
+                    </ul>
+                }
+            </MudPaper>
+        }
 
         <MudPaper Outlined="true" Class="pa-4 mt-5">
             <MudText Typo="Typo.h6" HtmlTag="h2">Profile settings</MudText>
@@ -89,6 +105,9 @@
     private bool _loading;
     private bool _error;
     private bool _unavailable;
+    private bool _participantsLoading;
+    private bool _participantsError;
+    private ProfileParticipantResponse[]? _participants;
 
     protected override Task OnParametersSetAsync() => LoadAsync();
 
@@ -104,6 +123,9 @@
         _error = false;
         _unavailable = false;
         _profile = null;
+        _participants = null;
+        _participantsLoading = false;
+        _participantsError = false;
         var cancellationToken = requestCancellation.Token;
         try
         {
@@ -125,7 +147,17 @@
             response.EnsureSuccessStatusCode();
             var profile = await response.Content.ReadFromJsonAsync<ProfileDetailsResponse>(cancellationToken: cancellationToken)
                 ?? throw new JsonException("The profile details are missing.");
-            if (generation == _loadGeneration) _profile = profile;
+            if (generation == _loadGeneration)
+            {
+                _profile = profile;
+                if (profile.Role == "owner")
+                {
+                    _loading = false;
+                    _participantsLoading = true;
+                    await InvokeAsync(StateHasChanged);
+                    await LoadParticipantsAsync(ProfileId, generation, cancellationToken);
+                }
+            }
         }
         catch (OperationCanceledException) when (requestCancellation.IsCancellationRequested) { }
         catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
@@ -138,6 +170,34 @@
             if (ReferenceEquals(_activeLoad, requestCancellation)) _activeLoad = null;
             requestCancellation.Dispose();
         }
+    }
+
+    private async Task LoadParticipantsAsync(Guid profileId, int generation, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"api/budget-profiles/{profileId}/participants");
+            request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+            using var response = await Http.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            var participants = await response.Content.ReadFromJsonAsync<ProfileParticipantResponse[]>(cancellationToken: cancellationToken) ?? [];
+            if (generation == _loadGeneration) _participants = participants;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            if (generation == _loadGeneration) _participantsError = true;
+        }
+        finally
+        {
+            if (generation == _loadGeneration) _participantsLoading = false;
+        }
+    }
+
+    private async Task RetryLoadParticipantsAsync()
+    {
+        _participantsLoading = true;
+        _participantsError = false;
+        await LoadParticipantsAsync(ProfileId, _loadGeneration, _activeLoad?.Token ?? _lifetime.Token);
     }
 
     private static string RoleLabel(string role) => role switch
