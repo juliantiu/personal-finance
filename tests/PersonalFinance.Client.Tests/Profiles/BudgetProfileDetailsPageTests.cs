@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using MudBlazor;
 using MudBlazor.Services;
 using PersonalFinance.Client;
 using PersonalFinance.Client.Accounts;
@@ -79,6 +80,48 @@ public sealed class BudgetProfileDetailsPageTests
 
         page.WaitForAssertion(() => Assert.Contains("No participants have access yet.", page.Markup));
         Assert.Contains("Sharing", page.Markup);
+    }
+
+    [Fact]
+    public async Task Owner_submits_role_grant_with_antiforgery_proof_and_sees_saved_feedback()
+    {
+        var id = Guid.NewGuid();
+        var handler = new ParticipantsStubHandler(id, "owner");
+        await using var context = CreateContext(handler, $"/budget-profiles/{id}");
+
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("No participants have access yet.", page.Markup));
+        page.Find("input[type='email']").Change("recipient@example.test");
+        var role = page.FindComponent<MudSelect<string>>();
+        await role.InvokeAsync(() => role.Instance.ValueChanged.InvokeAsync("view_only"));
+        await page.FindAll("button").Single(button => button.TextContent.Contains("Save access", StringComparison.Ordinal)).ClickAsync();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Access saved.", page.Markup);
+            Assert.Contains("recipient@example.test — View only", page.Markup);
+        });
+        Assert.True(handler.GrantRequested);
+        Assert.Equal("recipient@example.test", handler.GrantEmail);
+        Assert.Equal("view_only", handler.GrantRole);
+        Assert.Equal("test-proof", handler.GrantAntiforgeryToken);
+        Assert.True(handler.GrantCredentialsIncluded);
+    }
+
+    [Fact]
+    public async Task Owner_sees_generic_missing_account_feedback_when_grant_is_rejected()
+    {
+        var id = Guid.NewGuid();
+        var handler = new ParticipantsStubHandler(id, "owner") { GrantStatus = HttpStatusCode.NotFound };
+        await using var context = CreateContext(handler, $"/budget-profiles/{id}");
+
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("No participants have access yet.", page.Markup));
+        page.Find("input[type='email']").Change("missing@example.test");
+        await page.FindAll("button").Single(button => button.TextContent.Contains("Save access", StringComparison.Ordinal)).ClickAsync();
+
+        page.WaitForAssertion(() => Assert.Contains("No eligible account found.", page.Markup));
+        Assert.DoesNotContain("Access saved.", page.Markup);
     }
 
     [Theory]
@@ -225,26 +268,60 @@ public sealed class BudgetProfileDetailsPageTests
         public TaskCompletionSource ParticipantRequested { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public string? ParticipantPath { get; private set; }
         public bool ParticipantCredentialsIncluded { get; private set; }
+        public HttpStatusCode GrantStatus { get; init; } = HttpStatusCode.OK;
+        public bool GrantRequested { get; private set; }
+        public string? GrantEmail { get; private set; }
+        public string? GrantRole { get; private set; }
+        public string? GrantAntiforgeryToken { get; private set; }
+        public bool GrantCredentialsIncluded { get; private set; }
+        private readonly List<ProfileParticipantResponse> savedParticipants = [];
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (request.RequestUri!.AbsolutePath == "/api/auth/session")
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                { Content = JsonContent.Create(new { authenticated = true, email = "person@example.test" }) });
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = JsonContent.Create(new { authenticated = true, email = "person@example.test" }) };
+
+            if (request.RequestUri.AbsolutePath == "/api/auth/antiforgery")
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { requestToken = "test-proof" }) };
 
             if (request.RequestUri.AbsolutePath.EndsWith("/participants", StringComparison.Ordinal))
             {
+                if (request.Method == HttpMethod.Post)
+                {
+                    GrantRequested = true;
+                    GrantAntiforgeryToken = request.Headers.GetValues("X-CSRF-TOKEN").SingleOrDefault();
+                    GrantCredentialsIncluded = request.Options.TryGetValue(new HttpRequestOptionsKey<IDictionary<string, object>>("WebAssemblyFetchOptions"), out var grantOptions)
+                        && grantOptions.TryGetValue("credentials", out var grantCredentials) && Equals(grantCredentials, "include");
+                    var grant = await request.Content!.ReadFromJsonAsync<ProfileAccessGrantRequest>(cancellationToken: cancellationToken);
+                    GrantEmail = grant?.Email;
+                    GrantRole = grant?.Role;
+                    if (grant is not null)
+                    {
+                        var currentIndex = savedParticipants.FindIndex(value => value.Email == grant.Email);
+                        if (currentIndex >= 0) savedParticipants[currentIndex] = new ProfileParticipantResponse(grant.Email!, grant.Role!);
+                        else savedParticipants.Add(new ProfileParticipantResponse(grant.Email!, grant.Role!));
+                    }
+                    return new HttpResponseMessage(GrantStatus)
+                    {
+                        Content = GrantStatus == HttpStatusCode.NotFound
+                            ? JsonContent.Create(new { title = "No eligible account found." })
+                            : null
+                    };
+                }
                 ParticipantPath = request.RequestUri.AbsolutePath;
                 ParticipantCredentialsIncluded = request.Options.TryGetValue(new HttpRequestOptionsKey<IDictionary<string, object>>("WebAssemblyFetchOptions"), out var options)
                     && options.TryGetValue("credentials", out var credentials) && Equals(credentials, "include");
                 ParticipantRequested.TrySetResult();
-                return participantResponse ?? Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(Array.Empty<ProfileParticipantResponse>()) });
+                return participantResponse is not null
+                    ? await participantResponse
+                    : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(savedParticipants.ToArray()) };
             }
 
             var details = new ProfileDetailsResponse(id, "Shared home", "GBP", [], role,
                 [new ProfileCategoryDetailsResponse(Guid.NewGuid(), "Income", "income")],
                 [new ProfilePaymentMethodDetailsResponse("cash")], [new ProfileTagDetailsResponse("IOU", "iou")]);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(details) });
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(details) };
         }
     }
 

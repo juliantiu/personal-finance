@@ -41,6 +41,18 @@
         {
             <MudPaper Outlined="true" Class="pa-4 mt-4">
                 <MudText Typo="Typo.h6" HtmlTag="h2">Sharing</MudText>
+                <MudStack Spacing="2" Class="mt-3 mb-4">
+                    <MudTextField Label="Account email" InputType="InputType.Email" @bind-Value="_shareEmail" />
+                    <MudSelect T="string" Label="Access role" @bind-Value="_shareRole">
+                        <MudSelectItem T="string" Value="@("editor")">Editor</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("view_only")">View only</MudSelectItem>
+                    </MudSelect>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="_shareSaving || string.IsNullOrWhiteSpace(_shareEmail)" OnClick="GrantParticipantAsync">
+                        @(_shareSaving ? "Saving…" : "Save access")
+                    </MudButton>
+                    @if (_shareSuccess) { <MudText Color="Color.Success" role="status">Access saved.</MudText> }
+                    @if (_shareError is not null) { <MudAlert Severity="Severity.Error" role="alert">@_shareError</MudAlert> }
+                </MudStack>
                 @if (_participantsLoading) { <MudText role="status">Loading participants…</MudText> }
                 else if (_participantsError) { <MudAlert Severity="Severity.Error" role="alert">We couldn't load profile participants.</MudAlert><MudButton OnClick="RetryLoadParticipantsAsync">Try again</MudButton> }
                 else if (_participants is { Length: 0 }) { <MudText>No participants have access yet.</MudText> }
@@ -108,6 +120,11 @@
     private bool _participantsLoading;
     private bool _participantsError;
     private ProfileParticipantResponse[]? _participants;
+    private string _shareEmail = string.Empty;
+    private string _shareRole = "editor";
+    private bool _shareSaving;
+    private bool _shareSuccess;
+    private string? _shareError;
 
     protected override Task OnParametersSetAsync() => LoadAsync();
 
@@ -200,6 +217,88 @@
         await LoadParticipantsAsync(ProfileId, _loadGeneration, _activeLoad?.Token ?? _lifetime.Token);
     }
 
+    private async Task GrantParticipantAsync()
+    {
+        _shareSaving = true;
+        _shareSuccess = false;
+        _shareError = null;
+        try
+        {
+            var token = await GetAntiforgeryTokenAsync();
+            if (token is null) return;
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"api/budget-profiles/{ProfileId}/participants")
+            {
+                Content = JsonContent.Create(new ProfileAccessGrantRequest(_shareEmail, _shareRole))
+            };
+            request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+            request.Headers.Add("X-CSRF-TOKEN", token);
+            using var response = await Http.SendAsync(request, _lifetime.Token);
+            if (response.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                Authentication.NotifySignedOut();
+                Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString($"/budget-profiles/{ProfileId}")}", replace: true);
+                return;
+            }
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                _shareError = "No eligible account found.";
+                return;
+            }
+            if (!response.IsSuccessStatusCode)
+            {
+                _shareError = await ReadSharingErrorAsync(response);
+                return;
+            }
+
+            _shareSuccess = true;
+            _shareEmail = string.Empty;
+            _participantsLoading = true;
+            await LoadParticipantsAsync(ProfileId, _loadGeneration, _lifetime.Token);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception exception) when (exception is HttpRequestException or OperationCanceledException or JsonException)
+        {
+            _shareError = "We couldn't save profile access. Please try again.";
+        }
+        finally
+        {
+            _shareSaving = false;
+        }
+    }
+
+    // Comment ID: METHOD-064. Reads a safe API problem title or returns a generic sharing failure message.
+    private static async Task<string> ReadSharingErrorAsync(HttpResponseMessage response)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            if (document.RootElement.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(title.GetString()))
+                return title.GetString()!;
+        }
+        catch (JsonException) { }
+        return "We couldn't save profile access. Please try again.";
+    }
+
+    // Comment ID: METHOD-065. Fetches a fresh request token for the cookie-authenticated sharing mutation.
+    private async Task<string?> GetAntiforgeryTokenAsync()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "api/auth/antiforgery");
+        request.SetBrowserRequestCredentials(BrowserRequestCredentials.Include);
+        using var response = await Http.SendAsync(request, _lifetime.Token);
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            Authentication.NotifySignedOut();
+            Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString($"/budget-profiles/{ProfileId}")}", replace: true);
+            return null;
+        }
+        response.EnsureSuccessStatusCode();
+        var proof = await response.Content.ReadFromJsonAsync<AntiforgeryProof>(cancellationToken: _lifetime.Token);
+        return string.IsNullOrWhiteSpace(proof?.RequestToken)
+            ? throw new JsonException("Missing request proof.")
+            : proof.RequestToken;
+    }
+
     private static string RoleLabel(string role) => role switch
     {
         "owner" => "Owner",
@@ -220,4 +319,7 @@
         _lifetime.Cancel();
         _lifetime.Dispose();
     }
+
+    // Comment ID: CLASS-055. Carries the antiforgery request token returned for a cookie-authenticated mutation.
+    private sealed record AntiforgeryProof(string? RequestToken);
 }

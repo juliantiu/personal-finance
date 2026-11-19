@@ -1,6 +1,6 @@
 # UC-003 — Share a profile and change access — Implementation Plan
 
-**Status:** Approved; Phase 1 complete. Phases 2 and 3 have not started.
+**Status:** Approved; Phases 1 and 2 complete. Phase 3 has not started.
 
 **Confirmed behavior:** If a removal is requested for an account with no active grant, tell the owner that nothing was removed because the account has no active access to the profile. Do not imply a grant was removed.
 
@@ -38,7 +38,7 @@ Recipient invitations, acceptance links, access requests, ownership transfer, ac
 Each phase uses a red/green cycle for each behavior: add a focused test, run it and confirm it fails because the behavior is missing, implement the smallest vertical slice, then rerun the test and relevant existing profile regressions. Refactor only while the phase tests remain green. Finish and verify a phase before starting the next.
 
 1. **Owner-only sharing view and participant list — Complete.** The owner-only query and API response return the saved participants and roles, and the client sharing view displays them. Integration coverage verifies owner listing, editor/viewer/unrelated-account denial, unauthenticated denial, and no-store responses. bUnit covers loading, empty, populated, and non-owner states; browser coverage verifies the owner sees the sharing view and a viewer does not. Existing grants remain unchanged in this phase.
-2. **Grant and change participant roles — Not started.** Add the application command, persistence adapter, API mutation, and client form to grant editor/view-only access to a verified account identified by normalized email or update that participant's existing role. Tests first cover a new grant, role change without a duplicate row, missing/unverified recipient with the same generic result and no write, non-owner denial, unsupported role rejection, persistence failure, and antiforgery rejection. Add focused client tests for submission and success/error feedback.
+2. **Grant and change participant roles — Complete.** The application command and validator, persistence adapter, API mutation, and owner form grant editor/view-only access to a verified account identified by normalized email or update that participant's existing role. Tests cover a new grant, role change without a duplicate row, missing/unverified recipient with the same generic result and no write, non-owner denial, self-grant rejection, unsupported role rejection, persistence failure, and antiforgery rejection. Client tests cover role submission, participant refresh, and success/error feedback.
 3. **Remove access and verify the full owner workflow — Not started.** Add grant removal through the application, API, and client. Tests first cover successful removal, repeated/unknown participant requests returning a “nothing was removed because this account has no active access” result without changing data, prevention of altering the original owner's ownership, and the removed user's next profile request being denied while a still-granted participant retains the correct read/write behavior. Add Playwright coverage for listing participants, granting, changing, and removing access, then run the relevant account and profile regression suites.
 
 ## Completion criteria
@@ -51,3 +51,10 @@ UC-003 is complete when all three phases and their corresponding tests pass, own
 - **Green:** ordering by the email column before projecting fixed the integration failure; ending profile loading and rendering before awaiting the participant request fixed the bUnit state. Both focused tests passed after their fixes.
 - **Regression results:** all 88 client tests, all 52 application tests, all 46 profile integration tests, and all 3 `ProfileListBrowserTests` passed.
 - **Runner note:** the standard `dotnet test` invocation reported a Microsoft.Testing.Platform host handshake failure in this environment. The built xUnit v3 in-process test executables ran the listed suites successfully. Builds succeeded outside the sandbox where MSBuild could start the WebAssembly task host.
+
+## Phase 2 verification record
+
+- **Red:** while the persistence adapter's grant write was temporarily disabled, the focused owner-grant integration test received HTTP 404 instead of HTTP 200.
+- **Green:** restoring the write behavior made all 5 `ProfileAccessGrantTests` pass, including normalized email resolution, grant creation and role change, missing/unverified parity, self-grant rejection, owner and antiforgery checks, unsupported role rejection, and transaction rollback after a forced persistence failure.
+- **Regression results:** all 58 application tests, all 90 client tests, and all 51 profile integration tests passed. The Application, Client, and Integration test projects built successfully. Existing unrelated analyzer/using warnings appeared during the non-incremental Integration test build.
+- **Runner note:** the standard `dotnet test` command could not complete its Microsoft.Testing.Platform build step in this environment. The xUnit v3 in-process executables ran the tests successfully. SQL Server LocalDB integration tests and the Blazor WebAssembly build required host access because their LocalDB instance and MSBuild task host could not start inside the sandbox.

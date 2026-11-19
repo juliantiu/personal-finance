@@ -12,6 +12,7 @@ public static class ProfileEndpoints
         endpoints.MapGet("/api/budget-profiles", ListAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}", GetAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/participants", GetParticipantsAsync);
+        endpoints.MapPost("/api/budget-profiles/{profileId:guid}/participants", GrantParticipantAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/currency-settings", GetCurrencySettingsAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/categories", GetCategoriesAsync);
         endpoints.MapPost("/api/budget-profiles/{profileId:guid}/categories", CreateCategoryAsync);
@@ -34,6 +35,35 @@ public static class ProfileEndpoints
         catch (UnauthenticatedAccountException)
         {
             return Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Sign in to review profile sharing.");
+        }
+    }
+
+    private static async Task<IResult> GrantParticipantAsync(Guid profileId, ProfileAccessGrantRequest request,
+        IMediator mediator, ICurrentAccount currentAccount, IAntiforgery antiforgery, HttpContext context,
+        CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            if (await currentAccount.GetAccountIdAsync(cancellationToken) is null) throw new UnauthenticatedAccountException();
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Problem(statusCode: 400, title: "The sharing request could not be validated. Refresh the page and try again.");
+            }
+
+            var result = await mediator.Send(new GrantProfileAccessCommand(profileId, request.Email, request.Role), cancellationToken);
+            return result switch
+            {
+                GrantProfileAccessResult.Granted => Results.Ok(),
+                GrantProfileAccessResult.RecipientNotEligible => Results.Problem(statusCode: 404, title: "No eligible account found."),
+                GrantProfileAccessResult.OwnerCannotReceiveGrant => Results.Problem(statusCode: 400, title: "You already have full access as the profile owner."),
+                _ => Results.NotFound()
+            };
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: 401, title: "Sign in to manage profile sharing.");
         }
     }
 
