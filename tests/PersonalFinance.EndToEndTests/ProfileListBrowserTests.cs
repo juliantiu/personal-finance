@@ -90,18 +90,22 @@ public sealed class ProfileListBrowserTests
         Guid ownerId;
         Guid editorId;
         Guid secondOwnerId;
+        Guid newParticipantId;
         using (var scope = browser.Api.Services.CreateScope())
         {
             var manager = scope.ServiceProvider.GetRequiredService<UserManager<AccountIdentityUser>>();
             var owner = new AccountIdentityUser { UserName = "sharing-owner@example.test", Email = "sharing-owner@example.test", EmailConfirmed = true };
             var editor = new AccountIdentityUser { UserName = "sharing-editor@example.test", Email = "sharing-editor@example.test", EmailConfirmed = true };
             var secondOwner = new AccountIdentityUser { UserName = "sharing-second-owner@example.test", Email = "sharing-second-owner@example.test", EmailConfirmed = true };
+            var newParticipant = new AccountIdentityUser { UserName = "sharing-new@example.test", Email = "sharing-new@example.test", EmailConfirmed = true };
             Assert.True((await manager.CreateAsync(owner, "abcdefghijkl")).Succeeded);
             Assert.True((await manager.CreateAsync(editor, "abcdefghijkl")).Succeeded);
             Assert.True((await manager.CreateAsync(secondOwner, "abcdefghijkl")).Succeeded);
+            Assert.True((await manager.CreateAsync(newParticipant, "abcdefghijkl")).Succeeded);
             ownerId = owner.Id;
             editorId = editor.Id;
             secondOwnerId = secondOwner.Id;
+            newParticipantId = newParticipant.Id;
         }
 
         var ownedId = Guid.NewGuid();
@@ -133,6 +137,32 @@ public sealed class ProfileListBrowserTests
         await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Sharing", Exact = true })).ToBeVisibleAsync();
         var participants = page.GetByRole(AriaRole.List, new() { Name = "Profile participants" });
         await Expect(participants).ToContainTextAsync("sharing-editor@example.test — Editor");
+        var recipientEmail = page.Locator("input[type='email']");
+        await recipientEmail.FillAsync("sharing-new@example.test");
+        await recipientEmail.PressAsync("Tab");
+        await Expect(page.GetByRole(AriaRole.Button, new() { Name = "Save access", Exact = true })).ToBeEnabledAsync();
+        await page.GetByRole(AriaRole.Button, new() { Name = "Save access", Exact = true }).ClickAsync();
+        await Expect(participants).ToContainTextAsync("sharing-new@example.test — Editor");
+
+        await page.Locator(".mud-select").First.ClickAsync();
+        await page.GetByRole(AriaRole.Option, new() { Name = "View only", Exact = true }).ClickAsync();
+        await recipientEmail.FillAsync("sharing-new@example.test");
+        await recipientEmail.PressAsync("Tab");
+        await Expect(page.GetByRole(AriaRole.Button, new() { Name = "Save access", Exact = true })).ToBeEnabledAsync();
+        await page.GetByRole(AriaRole.Button, new() { Name = "Save access", Exact = true }).ClickAsync();
+        await Expect(participants).ToContainTextAsync("sharing-new@example.test — View only");
+
+        await page.GetByRole(AriaRole.Button, new() { Name = "Remove access for sharing-new@example.test", Exact = true }).ClickAsync();
+        await Expect(participants).Not.ToContainTextAsync("sharing-new@example.test");
+        await Expect(page.GetByRole(AriaRole.Status)).ToContainTextAsync("Access removed.");
+        await browser.Api.WithDatabaseAsync(async db =>
+        {
+            Assert.False(await db.ProfileAccess.AnyAsync(access => access.ProfileId == ownedId && access.AccountId == newParticipantId,
+                TestContext.Current.CancellationToken));
+            Assert.Equal(ownerId, await db.BudgetProfiles.Where(profile => profile.Id == ownedId)
+                .Select(profile => profile.OwnerAccountId).SingleAsync(TestContext.Current.CancellationToken));
+            return true;
+        });
 
         await page.GotoAsync(browser.ClientUrl + $"/budget-profiles/{viewedId}");
         await Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Viewed sharing profile", Exact = true })).ToBeVisibleAsync();

@@ -124,6 +124,30 @@ public sealed class BudgetProfileDetailsPageTests
         Assert.DoesNotContain("Access saved.", page.Markup);
     }
 
+    [Fact]
+    public async Task Owner_removes_participant_with_antiforgery_proof_and_refreshes_the_list()
+    {
+        var id = Guid.NewGuid();
+        var handler = new ParticipantsStubHandler(id, "owner");
+        handler.SeedParticipant(new ProfileParticipantResponse("recipient@example.test", "editor"));
+        await using var context = CreateContext(handler, $"/budget-profiles/{id}");
+
+        var page = context.Render<App>();
+        page.WaitForAssertion(() => Assert.Contains("recipient@example.test — Editor", page.Markup));
+        await page.Find("button[aria-label='Remove access for recipient@example.test']").ClickAsync();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Access removed.", page.Markup);
+            Assert.Contains("No participants have access yet.", page.Markup);
+            Assert.DoesNotContain("recipient@example.test — Editor", page.Markup);
+        });
+        Assert.True(handler.RemovalRequested);
+        Assert.Equal("recipient@example.test", handler.RemovalEmail);
+        Assert.Equal("test-proof", handler.RemovalAntiforgeryToken);
+        Assert.True(handler.RemovalCredentialsIncluded);
+    }
+
     [Theory]
     [InlineData("editor")]
     [InlineData("view_only")]
@@ -274,7 +298,13 @@ public sealed class BudgetProfileDetailsPageTests
         public string? GrantRole { get; private set; }
         public string? GrantAntiforgeryToken { get; private set; }
         public bool GrantCredentialsIncluded { get; private set; }
+        public bool RemovalRequested { get; private set; }
+        public string? RemovalEmail { get; private set; }
+        public string? RemovalAntiforgeryToken { get; private set; }
+        public bool RemovalCredentialsIncluded { get; private set; }
         private readonly List<ProfileParticipantResponse> savedParticipants = [];
+
+        public void SeedParticipant(ProfileParticipantResponse participant) => savedParticipants.Add(participant);
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -308,6 +338,17 @@ public sealed class BudgetProfileDetailsPageTests
                             ? JsonContent.Create(new { title = "No eligible account found." })
                             : null
                     };
+                }
+                if (request.Method == HttpMethod.Delete)
+                {
+                    RemovalRequested = true;
+                    RemovalAntiforgeryToken = request.Headers.GetValues("X-CSRF-TOKEN").SingleOrDefault();
+                    RemovalCredentialsIncluded = request.Options.TryGetValue(new HttpRequestOptionsKey<IDictionary<string, object>>("WebAssemblyFetchOptions"), out var removeOptions)
+                        && removeOptions.TryGetValue("credentials", out var removeCredentials) && Equals(removeCredentials, "include");
+                    var removal = await request.Content!.ReadFromJsonAsync<ProfileAccessRemovalRequest>(cancellationToken: cancellationToken);
+                    RemovalEmail = removal?.Email;
+                    savedParticipants.RemoveAll(value => value.Email == removal?.Email);
+                    return new HttpResponseMessage(HttpStatusCode.OK);
                 }
                 ParticipantPath = request.RequestUri.AbsolutePath;
                 ParticipantCredentialsIncluded = request.Options.TryGetValue(new HttpRequestOptionsKey<IDictionary<string, object>>("WebAssemblyFetchOptions"), out var options)

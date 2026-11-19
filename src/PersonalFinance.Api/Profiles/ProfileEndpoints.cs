@@ -13,6 +13,7 @@ public static class ProfileEndpoints
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}", GetAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/participants", GetParticipantsAsync);
         endpoints.MapPost("/api/budget-profiles/{profileId:guid}/participants", GrantParticipantAsync);
+        endpoints.MapDelete("/api/budget-profiles/{profileId:guid}/participants", RemoveParticipantAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/currency-settings", GetCurrencySettingsAsync);
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/categories", GetCategoriesAsync);
         endpoints.MapPost("/api/budget-profiles/{profileId:guid}/categories", CreateCategoryAsync);
@@ -58,6 +59,35 @@ public static class ProfileEndpoints
                 GrantProfileAccessResult.Granted => Results.Ok(),
                 GrantProfileAccessResult.RecipientNotEligible => Results.Problem(statusCode: 404, title: "No eligible account found."),
                 GrantProfileAccessResult.OwnerCannotReceiveGrant => Results.Problem(statusCode: 400, title: "You already have full access as the profile owner."),
+                _ => Results.NotFound()
+            };
+        }
+        catch (UnauthenticatedAccountException)
+        {
+            return Results.Problem(statusCode: 401, title: "Sign in to manage profile sharing.");
+        }
+    }
+
+    private static async Task<IResult> RemoveParticipantAsync(Guid profileId, [FromBody] ProfileAccessRemovalRequest request,
+        IMediator mediator, ICurrentAccount currentAccount, IAntiforgery antiforgery, HttpContext context,
+        CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            if (await currentAccount.GetAccountIdAsync(cancellationToken) is null) throw new UnauthenticatedAccountException();
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.Problem(statusCode: 400, title: "The sharing request could not be validated. Refresh the page and try again.");
+            }
+
+            var result = await mediator.Send(new RemoveProfileAccessCommand(profileId, request.Email), cancellationToken);
+            return result switch
+            {
+                RemoveProfileAccessResult.Removed => Results.Ok(),
+                RemoveProfileAccessResult.NoActiveAccess => Results.Problem(statusCode: 404,
+                    title: "Nothing was removed because this account has no active access to the profile."),
                 _ => Results.NotFound()
             };
         }
