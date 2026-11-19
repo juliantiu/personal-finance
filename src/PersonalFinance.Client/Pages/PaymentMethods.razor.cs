@@ -24,6 +24,7 @@ public partial class PaymentMethods
 
     private void ResetCardDraft()
     {
+        CloseReveal();
         ++_saveGeneration;
         _cardCancellation?.Cancel();
         _cardNumber = "";

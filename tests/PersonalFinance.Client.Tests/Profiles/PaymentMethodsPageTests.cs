@@ -14,7 +14,7 @@ using Xunit;
 
 namespace PersonalFinance.Client.Tests.Profiles;
 
-public sealed class PaymentMethodsPageTests
+public sealed partial class PaymentMethodsPageTests
 {
     [Theory]
     [InlineData(100, true)]

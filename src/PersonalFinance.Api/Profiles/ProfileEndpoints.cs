@@ -13,6 +13,29 @@ public static class ProfileEndpoints
         endpoints.MapGet("/api/budget-profiles/{profileId:guid}/payment-methods", ListPaymentMethodsAsync);
         endpoints.MapPost("/api/budget-profiles", CreateAsync);
         endpoints.MapPost("/api/budget-profiles/{profileId:guid}/payment-methods", SaveCardAsync);
+        endpoints.MapPost("/api/budget-profiles/{profileId:guid}/payment-methods/{methodId:guid}/reveal", RevealCardAsync);
+    }
+
+    private static async Task<IResult> RevealCardAsync(Guid profileId, Guid methodId, IMediator mediator,
+        ICurrentAccount currentAccount, IAntiforgery antiforgery, HttpContext context, CancellationToken cancellationToken)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            if (await currentAccount.GetAccountIdAsync(cancellationToken) is null) throw new UnauthenticatedAccountException();
+            try { await antiforgery.ValidateRequestAsync(context); }
+            catch (AntiforgeryValidationException)
+            { return Results.Problem(statusCode: 400, title: "The request could not be validated. Refresh and try again."); }
+            var result = await mediator.Send(new RevealCardCommand(profileId, methodId), cancellationToken);
+            return result.Status switch
+            {
+                CardRevealStatus.Revealed => Results.Ok(new RevealedCardResponse(result.Number!)),
+                CardRevealStatus.UnavailableMethod => Results.NotFound(),
+                CardRevealStatus.Forbidden => Results.Problem(statusCode: 403, title: "You don't have permission to reveal cards in this profile."),
+                _ => Results.Problem(statusCode: 503, title: "Card reveal is temporarily unavailable. Please try again.")
+            };
+        }
+        catch (UnauthenticatedAccountException) { return Results.Problem(statusCode: 401, title: "Sign in to reveal a card."); }
     }
 
     private static async Task<IResult> SaveCardAsync(Guid profileId, SaveCardRequest request, IMediator mediator,

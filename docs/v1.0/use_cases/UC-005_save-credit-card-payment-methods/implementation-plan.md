@@ -1,6 +1,6 @@
 # UC-005 credit card payment methods implementation plan
 
-Status: **Phase 1 completed on 11 November 2026. Phase 2 approved and completed on 12 November 2026, including local verification. Phases 3–6 are not started.**
+Status: **Phase 1 completed on 11 November 2026. Phase 2 approved and completed on 12 November 2026, including local verification. Phase 3 completed on 15 November 2026, including local verification. Phases 4–6 are not started.**
 
 ## Sources and current baseline
 
@@ -96,7 +96,7 @@ Introduce canonical number rules, save command, current owner/editor write autho
 
 ### Phase 3 Reveal a card with current writer permission
 
-**Status:** Not started.
+**Status:** Complete on 15 November 2026. See [Phase 3 verification](verification-phase-3.md) for observed red/green evidence, full regression results, the keyboard-focus correction and environment limits.
 
 Add a dedicated application operation, exact scoped lookup/decryption adapter, antiforgery-protected reveal POST, and an explicit reveal/hide UI. Authorize before decrypting. Keep plaintext out of ordinary projections and success messages. Include retired-card reveal when retirement exists in Phase 5; do not create a premature retirement UI.
 
@@ -157,7 +157,9 @@ The user authorized the completed `origin/develop` merge and the original docume
 
 The user explicitly approved the concrete Phase 2 plan on 12 November 2026 and asked for implementation through completion. That approval covers validated encrypted saving, current write authorization, card protection/fingerprints and readiness, the persistence extension/migration, masked projections/form, truthful failure recovery, red/green and regression checks, and reconciliation/verification documentation. It does not authorize applying the migration to the ordinary development database or starting Phase 3.
 
-**Checkpoint:** Phase 2 is complete and work stops at its learning checkpoint. Phases 3–6 remain not started and subject to the project's clarification and plan-approval process.
+The user explicitly approved the concrete Phase 3 plan on 13 November 2026 and requested implementation through complete verification. That approval covers the writer-authorized reveal operation, exact scoped encrypted lookup/decryption, antiforgery-protected no-store POST, reveal/hide dialog with context cleanup, red/green and regression checks, and verification documentation. No migration or ordinary development database change was required. Final local verification completed on 15 November 2026.
+
+**Checkpoint:** Phase 3 is complete and work stops at its learning checkpoint. Phases 4–6 remain not started and subject to the project's clarification and plan-approval process.
 
 ## Nickname amendment — 12 November 2026
 

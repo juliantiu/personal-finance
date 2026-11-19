@@ -15,6 +15,12 @@ Encryption purpose chain: `PersonalFinance.CardNumber`, `v1`, profile GUID in `N
 
 Matching uses HMAC-SHA-256 over ASCII `profile-guid-N:canonical-number`. The nonsecret key identifier is uppercase hexadecimal SHA-256 of the random matching key. A transaction checks every stored card's identifier before accepting a write. The unique index excludes the key identifier so different key generations cannot silently bypass uniqueness.
 
+## Explicit reveal — Phase 3
+
+An eligible current owner/editor can explicitly request a full number using the antiforgery-protected reveal POST. Masked list/profile reads never decrypt. Reveal uses the same resource-bound purpose chain and retained persistent Data Protection keys. It does not compute fingerprints and therefore does not require `Cards:MatchingKey`; losing or replacing the matching key still blocks affected writes under the existing readiness policy.
+
+Missing decryption keys, corrupt ciphertext, a different profile/method purpose or unavailable persistent protection readiness prevent reveal safely. Responses contain no provider details and use `Cache-Control: no-store`. The client clears displayed numbers and pending-response eligibility on hide, close, navigation, disposal and observed session/access loss. No background access monitor or physical managed-memory zeroization is implied. See [Phase 3 verification](verification-phase-3.md).
+
 ## Migration and atomic writes
 
 `20261112103729_AddEncryptedCards` extends `PaymentMethods`, preserving Cash rows/IDs and its filtered uniqueness index. It adds encrypted details, a 32-byte fingerprint, key identifier, last-four suffix, nullable `datetimeoffset` retirement metadata and SQL rowversion. Shape checks distinguish Cash/cards; unique `(ProfileId, NumberFingerprint)` covers every card, including retained cards.

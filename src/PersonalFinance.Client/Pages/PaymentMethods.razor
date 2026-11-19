@@ -47,7 +47,13 @@
                 <ul aria-label="Profile payment methods">
                     @foreach (var method in _methods.Methods)
                     {
-                        <li @key="method.Id">@(method.Nickname ?? PaymentMethodLabel(method.Kind)) @method.MaskedIdentifier</li>
+                        <li @key="method.Id">
+                            @(method.Nickname ?? PaymentMethodLabel(method.Kind)) @method.MaskedIdentifier
+                            @if (method.Kind == "credit_card" && _methods.Role is "owner" or "editor")
+                            {
+                                <MudButton OnClick="@(() => OpenRevealAsync(method))" Size="Size.Small">Reveal card</MudButton>
+                            }
+                        </li>
                     }
                 </ul>
             }
@@ -84,6 +90,21 @@
     }
 </MudContainer>
 
+<MudDialog Visible="@(_revealMethod is not null)" VisibleChanged="RevealVisibilityChanged"
+           Options="@(new DialogOptions { CloseOnEscapeKey = true, BackdropClick = true, MaxWidth = MaxWidth.Small, FullWidth = true })">
+    <TitleContent><MudText Typo="Typo.h6">Card number</MudText></TitleContent>
+    <DialogContent>
+        <MudText>@(_revealMethod?.Nickname ?? "Credit card") @_revealMethod?.MaskedIdentifier</MudText>
+        @if (_revealing) { <MudText role="status">Revealing card number…</MudText> }
+        @if (_revealedNumber is not null) { <MudText aria-label="Revealed card number">@_revealedNumber</MudText> }
+        @if (_revealError is not null) { <MudAlert Severity="Severity.Error" role="alert">@_revealError</MudAlert> }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="ToggleRevealAsync">@(_revealedNumber is not null || _revealing ? "Hide number" : "Reveal number")</MudButton>
+        <MudButton OnClick="CloseReveal">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
 @code {
     [Parameter] public Guid ProfileId { get; set; }
 
@@ -103,6 +124,7 @@
 
     private async Task LoadAsync()
     {
+        CloseReveal();
         var profileId = ProfileId;
         var generation = ++_loadGeneration;
         var requestCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);

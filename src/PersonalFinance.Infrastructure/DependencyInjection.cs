@@ -59,6 +59,8 @@ public static class DependencyInjection
         services.AddScoped<IProfilePaymentMethodReader, EfProfilePaymentMethodReader>();
         services.AddSingleton(new CardKeyReadiness(false));
         services.AddScoped<ICardNumberProtection, CardNumberProtection>();
+        services.AddScoped<ICardRevealProtection, CardNumberProtection>();
+        services.AddScoped<ICardRevealReader, EfCardRevealReader>();
         services.AddScoped<ICardPaymentMethodStore, EfCardPaymentMethodStore>();
         services.AddScoped<IProfileCreationStore, EfProfileCreationStore>();
         services.AddScoped<IAccountSessionEligibility, IdentityAccountSessionEligibility>();

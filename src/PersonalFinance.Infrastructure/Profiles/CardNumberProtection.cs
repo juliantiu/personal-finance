@@ -9,8 +9,21 @@ namespace PersonalFinance.Infrastructure.Profiles;
 
 public sealed record CardKeyReadiness(bool Persistent);
 
-public sealed class CardNumberProtection(IDataProtectionProvider provider, IConfiguration configuration, CardKeyReadiness readiness) : ICardNumberProtection
+public sealed class CardNumberProtection(IDataProtectionProvider provider, IConfiguration configuration, CardKeyReadiness readiness) : ICardNumberProtection, ICardRevealProtection
 {
+    public string Unprotect(Guid profileId, Guid methodId, string ciphertext)
+    {
+        try
+        {
+            if (!readiness.Persistent) throw new CardRevealUnavailableException();
+            var value = provider.CreateProtector("PersonalFinance.CardNumber", "v1", profileId.ToString("N"), methodId.ToString("N")).Unprotect(ciphertext);
+            if (!CardNumber.TryCreate(value, out var number) || number!.Value != value) throw new CardRevealUnavailableException();
+            return number.Value;
+        }
+        catch (Exception error) when (error is CryptographicException or IOException or UnauthorizedAccessException or FormatException)
+        { throw new CardRevealUnavailableException(); }
+    }
+
     public ProtectedCard Protect(Guid profileId, Guid methodId, CardNumber number)
     {
         byte[]? key = null;
